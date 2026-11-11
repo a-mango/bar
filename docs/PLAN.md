@@ -10,7 +10,7 @@ This plan splits the build of bar (behavior in `SPEC.md`) into milestones that a
 4. Test harness
 5. Milestones
 6. Cutover and rollback
-7. Open decisions
+7. Decisions
 8. Spike results
 
 ## 1. Decision record
@@ -22,6 +22,7 @@ This plan splits the build of bar (behavior in `SPEC.md`) into milestones that a
 - **2026-11-11, no waybar.** bar draws the whole bar: workspaces and sway mode on the left, notifications and clock in the center, tray on the right. One process means no overlay alignment with a foreign bar.
 - **2026-11-11, placement.** Notes grow out of the clock and fill the center span. OSDs take the full width.
 - **2026-11-11, layers.** The bar window sits on the bottom layer with an exclusive zone, as waybar does. Transient content goes in a separate overlay-layer window, so that OSDs and critical notifications show over fullscreen windows.
+- **2026-11-11, detail decisions.** D1 to D6 are answered in section 7.
 
 ## 2. Verified facts
 
@@ -133,6 +134,7 @@ bar/
     bar.service                                 systemd user unit (M8)
     org.freedesktop.Notifications.service       D-Bus activation file (M8)
     darkman-bar.sh                              darkman hook (M8)
+    sway-bindings.conf                          notification keys, decision D3 (M8)
   docs/
     SPEC.md
     PLAN.md
@@ -171,18 +173,21 @@ Using the session:
 
 Dependencies:
 
-| Milestone | Starts after |
-|---|---|
-| M1 notification core | M0 |
-| M2 bar | M0 |
-| M3 OSD view | M1 |
-| M4 note view | M1 and M2 |
-| M5 rich mode and input | M4 |
-| M6 outputs and theme transitions | M2 and M3 |
-| M7 polish | M5 and M6 |
-| M8 cutover | M7 |
+| Milestone | Starts after | Session model and effort |
+|---|---|---|
+| M0 bootstrap and spike | | Fable 5.2, `high` |
+| M1 notification core | M0 | Fable 5.2, `high` |
+| M2 bar | M0 | Opus 5.5, `xhigh` |
+| M3 OSD view | M1 | Opus 5.5, `xhigh` |
+| M4 note view | M1 and M2 | Opus 5.5, `xhigh` |
+| M5 rich mode and input | M4 | Opus 5.5, `xhigh` |
+| M6 outputs and theme transitions | M2 and M3 | Opus 5.5, `xhigh` |
+| M7 polish | M5 and M6 | Opus 5.5, `high` |
+| M8 cutover | M7 | Fable 5.2, `high` |
 
 M1 and M2 run in parallel, then M3 and M4, then M5 and M6. Each milestone gets its own branch (`mN-slug`).
+
+Model choice: Fable 5.2 takes the milestones where a mistake is expensive or hard to see. M0 lays the harness and answers the unknowns, M1 holds the D-Bus contract and the rule that every notification closes, and M8 changes the live desktop. Fable 5.2 works best from `high` effort, with uneven gains above it. Opus 5.5 at `xhigh` builds the UI milestones, which have clear specs and screenshot checks. M7 is a quick back-and-forth with the owner, so it runs at `high`.
 
 ### M0: bootstrap and spike
 
@@ -207,7 +212,7 @@ Spikes:
 - **S7** Handoff: a screenshot of the idle bar center and one of the overlay's first frame, drawing the same clock, are identical (`compare -metric AE` from ImageMagick, or a small Python diff).
 - **S8** `PersistentProperties` keeps a `var` array of plain objects across a reload.
 - **S9** Tray: `SNI_WAIT_TIMEOUT=10 /usr/libexec/sway-systemd/wait-sni-ready` exits 0 in the nested session. The fake item appears, and its menu opens through `QsMenuAnchor` from the bottom-layer bar. Sub-check: the menu accepts arrow keys and Escape while the bar's keyboard focus is `None`. Record whether `OnDemand` is needed.
-- **S10** sway mode: an `I3IpcListener` subscribed to `mode` receives the event after `swaymsg mode resize`, and `swaymsg -t get_binding_state` gives the initial mode. Note the format `subscriptions` expects.
+- **S10** sway events: an `I3IpcListener` subscribed to `mode` receives the event after `swaymsg mode resize`, and `swaymsg -t get_binding_state` gives the initial mode. A listener subscribed to `window` receives `fullscreen_mode` changes when the test client goes fullscreen and back (needed for decision D5). Note the format `subscriptions` expects.
 - **S11** Setting `Quickshell.watchFiles` to false stops the reload when a file changes. The live copy (M8) depends on it.
 
 Done when: `make nested` and `make reference` start and stop cleanly twice in a row, and section 8 holds all eleven results.
@@ -220,14 +225,14 @@ Tasks:
 2. `services/Notifs.qml`:
    - `NotificationServer` with `keepOnReload: true`, `bodySupported`, `bodyMarkupSupported`, `actionsSupported` and `imageSupported` set to true.
    - Tracking on arrival, re-tracking of reload survivors, timers per SPEC section 6, the queue with its 30 s limit, synchronous-tag replacement and the reaction to `replaces_id` updates.
-   - DND and the last theme mode in `state.json` under `Quickshell.stateDir`, DND on by default. History in `PersistentProperties`.
+   - DND and the last theme mode in `state.json` under `Quickshell.stateDir`, DND off by default (decision D6). History in `PersistentProperties`.
 3. The `notify` IPC handler with every function from SPEC section 9.
 4. A debug view in the overlay: the current notification as plain text in the center, without animation.
 
 Done when:
 
 - `make test` passes.
-- Matrix cases N1, N3, N5, N8, N9, N10, N11, N13 and N14 pass, and the bus log shows the expected `NotificationClosed` reasons at the expected times.
+- Matrix cases N1, N3, N5, N8, N9, N10, N11, N13, N14 and N18 pass, and the bus log shows the expected `NotificationClosed` reasons at the expected times.
 - The `screenshot.sh` contract passes through IPC: `tests/fake-screenshot.sh` waits in the background, `quickshell ipc ... call notify invoke discard` makes it print `discard`, and a second run that just times out prints nothing and exits.
 
 ### M2: bar
@@ -271,20 +276,20 @@ Done when:
 
 ### M5: rich mode and input
 
-Depends on open decision D1. Until then, build the default from SPEC section 4.
+Builds decisions D1 (card for `screenshot` only) and D5 (hold notes during fullscreen) from section 7.
 
 Tasks:
 
 - `overlay/RichView.qml` and the card animation.
 - Click handling per the rules table, the middle click and hover pause.
 - The overlay mask for the card.
-- The D5 behavior for notes over fullscreen windows.
+- Fullscreen tracking per output in `services/Sway.qml` (SPEC section 11) and the hold in the queue (SPEC sections 5 and 6).
 
 Done when:
 
 - Matrix case N7 passes all three outcomes with `tests/fake-screenshot.sh` and a generated PNG.
 - Hover pause is shown by moving the cursor onto the note and back.
-- Case B7 passes for the note part.
+- Case B7 passes for the screenshot and plain-note parts, and case N17 passes.
 
 ### M6: outputs and theme transitions
 
@@ -311,7 +316,7 @@ Done when: the owner signs off on the visuals.
 
 ### M8: cutover
 
-This milestone replaces waybar and mako on the live desktop. It starts only after the owner gives an explicit go-ahead in the session, with D1 to D5 answered. See section 6.
+This milestone replaces waybar and mako on the live desktop. It starts only after the owner gives an explicit go-ahead in the session. See section 6.
 
 Done when:
 
@@ -335,11 +340,11 @@ Cutover steps:
 3. Install `packaging/org.freedesktop.Notifications.service` to `~/.local/share/dbus-1/services/`: `Name=org.freedesktop.Notifications`, `Exec=/usr/bin/quickshell -p /home/acm/.local/share/bar --no-duplicate` (D-Bus files do not expand `%h`), `SystemdService=bar.service`.
 4. The owner runs `systemctl --user stop mako.service && sudo dnf remove mako`. This also deletes mako's activation file, so bar's file is the only one claiming the name. Then ask the bus to reload (`busctl --user call org.freedesktop.DBus / org.freedesktop.DBus ReloadConfig`).
 5. Count the tray items: `busctl --user get-property org.kde.StatusNotifierWatcher /StatusNotifierWatcher org.kde.StatusNotifierWatcher RegisteredStatusNotifierItems` (11 on 2026-11-11).
-6. In `~/.config/sway/config.d/90-bar.conf`, comment out the `bar {}` block first, so that no later `swaymsg reload` brings waybar back. Handle `bindsym $mod+m` per D4. Do not reload sway: `exec_always` entries (the wallpaper rotation) would run again.
+6. In `~/.config/sway/config.d/90-bar.conf`, comment out the `bar {}` block first, so that no later `swaymsg reload` brings waybar back. Remove `bindsym $mod+m bar hidden_state toggle` (decision D4) and drop it live with `swaymsg unbindsym $mod+m`. Do not reload sway: `exec_always` entries (the wallpaper rotation) would run again.
 7. `pkill -x waybar`, then check for 10 s that sway does not start it again.
 8. `systemctl --user start bar.service`. Check that `busctl --user status org.freedesktop.Notifications` and `busctl --user status org.kde.StatusNotifierWatcher` both show `quickshell`, then count the tray items again. An applet that did not register again gets restarted, and its name goes in the CLAUDE.md gotchas.
 9. darkman: `chmod -x ~/.local/share/darkman/waybar.sh` (renaming is not enough, since darkman runs any executable file in the directory). Install `packaging/darkman-bar.sh` as `~/.local/share/darkman/bar.sh` with the executable bit set. The hook calls `quickshell ipc --any-display -p ~/.local/share/bar call theme set "$1"` (SPEC section 10).
-10. Add the D3 bindings in a new `~/.config/sway/config.d/` file, and apply them live with `swaymsg bindsym ...` (again without a reload).
+10. Install `packaging/sway-bindings.conf` as `~/.config/sway/config.d/60-bindings-notifications.conf` (decision D3: `$mod+n`, `$mod+Shift+n`, `$mod+Ctrl+n`, `$mod+Shift+d`). Apply each binding live with `swaymsg bindsym ...` (again without a reload).
 
 Live checks, with fictional text where a notification is involved:
 
@@ -348,7 +353,8 @@ Live checks, with fictional text where a notification is involved:
 - Clock toggle and calendar popup.
 - One press each of the volume, brightness and microphone keys, also over a fullscreen window.
 - A screenshot followed by a right click (the file must go to the trash).
-- A DND toggle, a plain note, a critical note.
+- `$mod+Shift+d` twice (DND on and off), a plain note dismissed with `$mod+n` and brought back with `$mod+Ctrl+n`, then a critical note.
+- A plain note sent while a fullscreen window is focused: it appears once fullscreen ends.
 - `darkman toggle` twice.
 - `systemctl --user restart bar.service`, then the tray count is back to its value from step 5.
 - A logout and login: bar is up, and the tray count matches.
@@ -360,19 +366,20 @@ Rollback:
 1. `systemctl --user disable --now bar.service`, then remove `~/.local/share/dbus-1/services/org.freedesktop.Notifications.service`.
 2. `sudo dnf install mako`.
 3. Restore the `bar {}` block in `90-bar.conf`, `chmod +x ~/.local/share/darkman/waybar.sh`, and remove `bar.sh`.
-4. `swaymsg reload` to start waybar again (this one reload is accepted), and `makoctl mode -a do-not-disturb` to bring DND back.
+4. `swaymsg reload` to start waybar again (this one reload is accepted). Remove `60-bindings-notifications.conf`, and run `makoctl mode -a do-not-disturb` if DND is wanted.
 
-## 7. Open decisions
+## 7. Decisions
 
-- **D1, screenshots and other image notifications.** Two parts:
-  - Layout. Default: rich mode, a 72 px thumbnail card above the center span. Alternative: a separate popup at top center, like mako today.
-  - Scope. Default: rich mode for `screenshot` only, while other apps' images fill the 16 px icon. Alternative: rich mode for any notification with an image. Browsers and chat apps send avatars and site icons as `image-data`, so most of their notifications would then become 96 px cards.
+The owner answered these on 2026-11-11. A change to one of them is the owner's call, so agents ask before deviating.
 
-  Needs an answer before M5.
-- **D2, critical notifications.** Default: they stay until clicked, which changes mako's current behavior. Needs confirmation before M4.
-- **D3, sway bindings.** Keys for `toggleDnd`, `dismiss`, `dismissAll` and `restore`. Needs an answer before M8.
-- **D4, `$mod+m`.** It does nothing today. Default: remove the binding. Alternative: bind it to `bar.toggle()`, which hides the bar and re-tiles the windows each time. Needs an answer before M8.
-- **D5, notes over fullscreen windows.** Default: show them, since the overlay is above fullscreen windows anyway. Alternative: hold notes in the queue while the output shows a fullscreen window (OSDs and critical notifications still show), which needs fullscreen tracking through sway IPC. Needs an answer before M5.
+| # | Question | Answer | Used in |
+|---|---|---|---|
+| D1 | Screenshots and other image notifications | 72 px thumbnail card above the center span, for the `screenshot` app only. Other apps' images fill the 16 px icon. | M5 |
+| D2 | Critical notifications | Stay until clicked or closed by the sender (mako expired them after 5 s). | M1, M4 |
+| D3 | Sway bindings | `$mod+n` dismiss, `$mod+Shift+n` dismiss all, `$mod+Ctrl+n` restore, `$mod+Shift+d` toggle DND. | M8 |
+| D4 | `$mod+m` | Remove the binding. The bar has no hide function. | M8 |
+| D5 | Notes over fullscreen windows | Hold them in the queue while the target output shows a fullscreen window. OSDs, screenshots and critical notifications still show. The 30 s queue limit applies, so long-held notes go to history. | M5 |
+| D6 | DND at first start | Off. | M1 |
 
 ## 8. Spike results
 

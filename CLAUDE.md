@@ -32,7 +32,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - One milestone per branch (`mN-slug`). Small commits with conventional subjects (`feat:`, `fix:`, `test:`…).
 - A milestone is done when its "Done when" checks in `docs/PLAN.md` pass. Report evidence (command output, `.test/shots/` paths), not claims.
 - Write spike findings into `docs/PLAN.md` section 8, and update `docs/SPEC.md` when a finding changes behavior.
-- Open decisions (D1 to D5 in `docs/PLAN.md` section 7) are the owner's. Build the documented default and ask before the milestone that depends on it.
+- Decisions D1 to D6 (`docs/PLAN.md` section 7) are settled. Changing one, or any new question about how bar should look or behave, is the owner's call: ask, do not guess.
 
 ## Gotchas
 <!-- Add one line per non-obvious lesson learned; prune when obsolete. -->

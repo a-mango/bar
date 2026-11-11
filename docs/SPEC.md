@@ -112,22 +112,25 @@ Note line, left to right:
 
 `services/Rules.js` holds the rules as data, plus a pure `classify(notification, state)` function with no QML imports, so `node --test` can check it. The rules reproduce the behavior of the retired mako configuration (`docs/reference/mako/config`, as of 2026-11-03), except for the changes listed after the table.
 
-| Criteria | Kind | Timeout when sender passes -1 | Shown in DND | History | Left click | Right click | Colors |
-|---|---|---|---|---|---|---|---|
-| default | note | 5000 ms | no | yes | default action if any, else dismiss | dismiss | `base01` background, text as in section 4 |
-| app `volume` | OSD | 2000 ms | yes | no | dismiss | dismiss | fill `base0D` |
-| app `brightness` | OSD | 2000 ms | yes | no | dismiss | dismiss | fill `base0A` |
-| app `microphone` | OSD | 2000 ms | yes | no | dismiss | dismiss | fill `base0E` |
-| app `screenshot` | rich (note if no image) | 10000 ms | yes | yes | dismiss | invoke action `discard` | as default |
-| urgency critical, app `battery-appindicator` | critical | none | yes | yes | default action if any, else dismiss | dismiss | `base08` background, `base07` text |
-| urgency critical, any other app | critical | none | no | yes | default action if any, else dismiss | dismiss | as above |
+| Criteria | Kind | Timeout when sender passes -1 | Shown in DND | Shown over fullscreen | History | Left click | Right click | Colors |
+|---|---|---|---|---|---|---|---|---|
+| default | note | 5000 ms | no | no (held) | yes | default action if any, else dismiss | dismiss | `base01` background, text as in section 4 |
+| app `volume` | OSD | 2000 ms | yes | yes | no | dismiss | dismiss | fill `base0D` |
+| app `brightness` | OSD | 2000 ms | yes | yes | no | dismiss | dismiss | fill `base0A` |
+| app `microphone` | OSD | 2000 ms | yes | yes | no | dismiss | dismiss | fill `base0E` |
+| app `screenshot` | rich (note if no image) | 10000 ms | yes | yes | yes | dismiss | invoke action `discard` | as default |
+| urgency critical, app `battery-appindicator` | critical | none | yes | yes | yes | default action if any, else dismiss | dismiss | `base08` background, `base07` text |
+| urgency critical, any other app | critical | none | no | yes | yes | default action if any, else dismiss | dismiss | as above |
 
 Timeout resolution: a positive `expireTimeout` from the sender wins (the OSD senders pass 800 ms). `-1` takes the rule's value. `0` never expires. One exception overrides all three: a notification that DND hides always expires after 5000 ms, because nobody can click a notification that is never drawn.
 
+Fullscreen (decision D5): a notification whose rule does not show over fullscreen waits in the queue while its target output shows a fullscreen window. This matches what the owner sees today, since mako's normal notifications were on the top layer, under fullscreen windows. OSDs, screenshots and critical notifications still show over the fullscreen window. Screenshots get the same reasoning as their DND exception in the mako config: they answer a key press, and without them a successful shot looks like nothing happened.
+
 Changes from the mako behavior:
 
-- Critical notifications stay until clicked or closed by the sender. mako applied `default-timeout=5000` to them (open decision D2).
-- Normal notes also show over fullscreen windows, since everything transient is on the overlay layer. mako's normal notifications were on the top layer, under fullscreen windows (open decision D5).
+- Critical notifications stay until clicked or closed by the sender. mako applied `default-timeout=5000` to them (decision D2).
+- Notes held during fullscreen show once it ends, if they have waited less than 30 s. mako dropped them out of sight under the fullscreen window.
+- DND starts off (decision D6). mako was in DND mode when this was written.
 - Timers start when a notification becomes visible, not when it arrives, because the bar shows one notification at a time.
 - Hovering a note pauses its timer.
 - mako's `[urgency=high]` section is dropped: it matched nothing, since urgencies are low, normal and critical.
@@ -141,13 +144,14 @@ Changes from the mako behavior:
 5. **Synchronous tag.** If `hints["x-canonical-private-synchronous"]` matches a tracked notification, the old one is closed with `expire()`. The OSD keeps its surface and animates from the old value to the new one, and the timer restarts. The OSD senders never pass `replaces_id`, so this is the only replacement path they use.
 6. **`replaces_id` updates.** The server updates the existing object and emits no new `notification` signal. Views bind to the properties (`summary`, `body`, `hints`, `urgency`, `image`). The core listens to `expireTimeoutChanged`, `hintsChanged`, `summaryChanged` and `bodyChanged` to restart the timer.
 7. **Queue.** One note is visible at a time:
-   - Order: critical first, then arrival order (oldest first).
+   - Order: critical notifications first (newest first), then the others in arrival order (oldest first).
    - An OSD draws above the current note. The note's timer pauses and resumes once the OSD leaves.
-   - A critical notification pushes the current note back to the front of the queue with its remaining time.
-   - A notification that has waited 30 s in the queue without being shown expires into history (reason 1). Blocking senders such as `screenshot.sh` would otherwise wait for as long as the queue lasts.
+   - A critical notification pushes the current note back to the front of the queue with its remaining time. A newer critical also takes the span from an older one, which goes back to the front of the queue. `battery-appindicator` sends 20 %, 5 % and suspend warnings in a row, and the latest one must be the one on screen.
+   - While the target output shows a fullscreen window, notes whose rule does not show over fullscreen stay in the queue (decision D5). The first one appears when the fullscreen window leaves.
+   - A notification that has waited 30 s in the queue without being shown expires into history (reason 1). This includes notes held during fullscreen, so most notes that arrive during a film end up in history. Critical notifications are exempt: they stay until clicked (decision D2), so they wait in the queue as long as needed. Blocking senders such as `screenshot.sh` would otherwise wait for as long as the queue lasts.
 8. **Timers.** The server has no expiry timer, so all timers live in QML. Expiry calls `n.expire()` (reason 1). A dismiss click calls `n.dismiss()` (reason 2). An action click calls `action.invoke()`, which emits `ActionInvoked` and then closes with reason 2 unless the notification is `resident`. A sender's `CloseNotification` closes with reason 3, and the views react to the `closed` signal. Every tracked notification must close eventually.
 9. **History.** The last 20 closed notifications whose rule keeps history and that are not `transient`. Entries are plain objects (app, summary, body, urgency, time), not `Notification` objects, kept in `PersistentProperties` across reloads. `restore()` shows the newest entry again as a note without actions.
-10. **State.** `state.json` under `Quickshell.stateDir` stores the DND flag and the last theme mode. With no state file, DND starts on (mako was in DND when this was written).
+10. **State.** `state.json` under `Quickshell.stateDir` stores the DND flag and the last theme mode. With no state file, DND starts off (decision D6).
 
 ## 7. Animation
 
@@ -200,7 +204,16 @@ Calls use `quickshell ipc -p <config dir> call <target> <function> [args]`. Type
 
 `theme` target: `set(mode: string)` with `dark` or `light`, and `mode(): string`.
 
-`bar` target: `toggle()` only if open decision D4 asks for it.
+Sway bindings (decision D3), installed at cutover from `packaging/sway-bindings.conf`. Each one runs `quickshell ipc -p ~/.local/share/bar call notify <function>`:
+
+| Keys | Function |
+|---|---|
+| `$mod+n` | `dismiss()` |
+| `$mod+Shift+n` | `dismissAll()` |
+| `$mod+Ctrl+n` | `restore()` |
+| `$mod+Shift+d` | `toggleDnd()` |
+
+`$mod+m` (`bar hidden_state toggle`) is removed at cutover (decision D4). The bar has no hide function.
 
 ## 10. Theme
 
@@ -214,6 +227,7 @@ Calls use `quickshell ipc -p <config dir> call <target> <function> [args]`. Type
 
 - One bar window and one overlay window per screen, through `Variants { model: Quickshell.screens }`.
 - Each bar shows the workspaces of its own output. The clock and tray appear on every bar.
+- Fullscreen state per output comes from sway IPC: `swaymsg -t get_tree` at startup, then `window` events (`fullscreen_mode` changes) and `workspace` events through an `I3IpcListener`. An output counts as fullscreen when its visible workspace holds a fullscreen container, or when a global fullscreen window exists.
 - A notification shows on the output that is focused when it becomes visible (`I3.focusedMonitor.name` matched to `ShellScreen.name`) and stays there until it leaves. OSD updates with the same synchronous tag stay where the OSD started.
 - Plugging or unplugging an output (dock) must not crash the shell or leave a stale surface.
 
@@ -249,7 +263,7 @@ Bar:
 | B4 | click on the clock, hover on the clock | seconds shown and ticking, calendar popup with today highlighted |
 | B5 | `tests/fake-sni.py` registers an item, sets `NeedsAttention`, then exposes a menu | icon appears, blinks, right click opens the menu, a click on an entry reaches the fake item |
 | B6 | `SNI_WAIT_TIMEOUT=10 /usr/libexec/sway-systemd/wait-sni-ready` | exits 0 |
-| B7 | a fullscreen test client, then a volume OSD and a note | bar covered, OSD drawn above the client, note per D5 |
+| B7 | a fullscreen test client, then a volume OSD, a screenshot note and a plain note | bar covered, OSD and screenshot drawn above the client, plain note held |
 
 Notifications:
 
@@ -271,3 +285,5 @@ Notifications:
 | N14 | DND on, `notify-send -u critical -a demo-app "Disk almost full" "fictional test"` | nothing drawn, reason 1 after 5 s |
 | N15 | a note visible, click on a workspace button | the workspace switches (overlay mask) |
 | N16 | idle after all cases | screenshot identical to the idle bar before the cases |
+| N17 | fullscreen test client, a plain note, fullscreen off after 10 s; then the same with 35 s | first run: the note appears after the exit. Second run: nothing appears, the note is in history, reason 1 |
+| N18 | two `-u critical -a battery-appindicator` notes 1 s apart, neither clicked, checked after 60 s | both still tracked, the newer one visible with `+1`, and dismissing it shows the older one |
