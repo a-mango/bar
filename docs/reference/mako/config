@@ -1,0 +1,122 @@
+anchor=top-center
+sort=-time
+layer=top
+width=600
+height=100
+margin=0
+border-size=1
+border-radius=0
+icons=1
+max-icon-size=32
+icon-path=/usr/share/icons/AdwaitaLegacy:/usr/share/icons/hicolor:/usr/share/icons/Adwaita
+actions=1
+default-timeout=5000
+font=IosevkaTerm Nerd Font 10
+
+background-color=#181818
+text-color=#d8d8d8
+border-color=#d8d8d8
+
+[mode=dark]
+background-color=#181818
+text-color=#d8d8d8
+border-color=#d8d8d8
+
+[mode=light]
+background-color=#f8f8f8
+text-color=#383838
+border-color=#383838
+
+# [urgency=low]
+# text-color=#f7ca88
+# border-color=#7cafc2
+
+[urgency=high]
+background-color=#ab4642
+
+[urgency=critical]
+background-color=#ab4642
+layer=overlay
+
+[mode=do-not-disturb]
+invisible=1
+
+# Battery alerts (20%, 5%, suspend warning) are sent as critical by
+# ~/bin/battery-appindicator and must get through Do Not Disturb. This has
+# to come after the do-not-disturb section: later sections win.
+[mode=do-not-disturb app-name="battery-appindicator" urgency=critical]
+invisible=0
+
+# Progress-bar OSD notifications (volume / brightness / microphone).
+# Each has a base section with geometry + progress color, then a light-mode
+# override for the colors. The base colors are dark, so they double as the
+# fallback when no dark/light mode is active. darkman keeps exactly one of
+# the dark/light modes active, so the override below applies in light mode.
+# Text uses a contrasting palette color so the label stays legible even when
+# the progress bar is empty (e.g. muted volume or 0% brightness).
+
+[app-name="volume"]
+layer=overlay
+anchor=top-center
+width=1920
+height=27
+text-color=#d8d8d8
+background-color=#181818
+progress-color=#7cafc2
+default-timeout=2000
+history=0
+group-by=
+invisible=0
+
+[mode=light app-name="volume"]
+text-color=#383838
+background-color=#f8f8f8
+
+[app-name="brightness"]
+layer=overlay
+anchor=top-center
+width=1920
+height=27
+text-color=#d8d8d8
+background-color=#181818
+progress-color=#f7ca88
+default-timeout=2000
+history=0
+group-by=
+invisible=0
+
+[mode=light app-name="brightness"]
+text-color=#383838
+background-color=#f8f8f8
+
+# Microphone mute is a binary state, not a percentage: when muted the bar is
+# empty, so (unlike volume/brightness) we keep the text visible instead of
+# hiding it against the background — otherwise the muted popup would be blank.
+[app-name="microphone"]
+layer=overlay
+anchor=top-center
+width=1920
+height=27
+text-color=#d8d8d8
+background-color=#181818
+progress-color=#ba8baf
+default-timeout=2000
+history=0
+group-by=
+invisible=0
+
+[mode=light app-name="microphone"]
+text-color=#383838
+background-color=#f8f8f8
+
+# Screenshot notifications from ~/Documents/scripts/screenshot.sh. Right click
+# discards the screenshot, left click or timeout keeps it, so they stay up a
+# bit longer and show a bigger thumbnail to decide from.
+[app-name="screenshot"]
+default-timeout=10000
+max-icon-size=64
+# Direct feedback to a key press, like the OSDs above: show it in DND too,
+# otherwise a successful shot looks like nothing happened.
+invisible=0
+on-button-left=dismiss
+on-button-right=invoke-action discard

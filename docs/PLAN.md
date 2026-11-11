@@ -1,0 +1,379 @@
+# bar: build plan
+
+This plan splits the build of bar (behavior in `SPEC.md`) into milestones that an agent can take one at a time. Each milestone lists its tasks and the evidence required before it counts as done. Milestones M0 to M7 run only inside an isolated nested sway session with a private D-Bus. M8 replaces waybar and mako on the live desktop and starts only after the owner's explicit go-ahead in the session.
+
+## Contents
+
+1. Decision record
+2. Verified facts
+3. Repository layout
+4. Test harness
+5. Milestones
+6. Cutover and rollback
+7. Open decisions
+8. Spike results
+
+## 1. Decision record
+
+- **2026-11-10, goal.** Show every notification, OSDs included, in the bottom bar, with animation, and draw nothing extra while idle.
+- **2026-11-10, toolkit.** Quickshell was picked over a waybar module, SwayNotificationCenter, Eww, GTK4 with `gtk4-layer-shell`, and a hand-written C client. It is packaged in Fedora 44, renders through the GPU with eased animations, `MultiEffect` and OpenGL Shading Language (GLSL) shaders, reloads live, and ships a notification server, a tray watcher and sway IPC support.
+- **2026-11-10, notification server.** Quickshell owns the notification bus name itself. mako's API drops the hints the OSDs need (section 2), so a bridge would have needed D-Bus eavesdropping and would still have required rewriting the DND rules.
+- **2026-11-11, no mako.** DND, screenshot and critical notifications live in bar. mako is uninstalled at cutover.
+- **2026-11-11, no waybar.** bar draws the whole bar: workspaces and sway mode on the left, notifications and clock in the center, tray on the right. One process means no overlay alignment with a foreign bar.
+- **2026-11-11, placement.** Notes grow out of the clock and fill the center span. OSDs take the full width.
+- **2026-11-11, layers.** The bar window sits on the bottom layer with an exclusive zone, as waybar does. Transient content goes in a separate overlay-layer window, so that OSDs and critical notifications show over fullscreen windows.
+
+## 2. Verified facts
+
+These were checked on 2026-11-10 and 2026-11-11. Re-check a fact before relying on it if the package versions change.
+
+### System
+
+- Fedora 44, sway 1.11, waybar 0.15.0, mako 1.11.0, darkman 2.2.0.
+- Quickshell `0.2.1^git20260209.dacfa9d-5.fc44` is in the `updates` repository but **not installed**. Qt 6.11.2 `qtbase`, `qtdeclarative`, `qtshadertools` (provides `qsb`) and `qt5compat` are installed. `qmllint` is not installed (it comes with `qt6-qtdeclarative-devel`). `node` v22, `python3-dbus-next` and `python3-tenacity` are available. foot and weston are not installed.
+- eDP-1 is 1920x1200 logical at scale 2. External outputs come and go with the docks.
+- waybar runs as `waybar -b bar-0` from the `bar {}` block in `~/.config/sway/config.d/90-bar.conf`. Its config has no `"ipc": true`, so it ignores sway's `mode hide`. The bar is always docked and 24 px high (the workspace is 1176 px tall out of 1200), and `$mod+m` (`bar hidden_state toggle`) does nothing.
+- sway modes: `resize`, `passthrough` and the `present:` cheat-sheet mode (`60-bindings-present.conf`), whose name waybar cuts short.
+- Session units: `sway-session.target` exists (sway-systemd). `95-xdg-desktop-autostart.conf` runs `/usr/libexec/sway-systemd/wait-sni-ready`, which waits up to 25 s (`SNI_WAIT_TIMEOUT`) for `org.kde.StatusNotifierWatcher` with `IsStatusNotifierHostRegistered`, then starts `sway-xdg-autostart.target`.
+- Tray: 11 items were registered on 2026-11-11 (blueman, pasystray, nm-applet, solaar, gammastep, udiskie, `battery_app`, among others), most through libayatana-appindicator. waybar currently owns the watcher.
+- mako starts through D-Bus activation: `/usr/share/dbus-1/services/fr.emersion.mako.service` has `Name=org.freedesktop.Notifications` and `SystemdService=mako.service`. `mako.service` is disabled and only ever activated. No installed package requires or recommends mako.
+- mako's API (`ListNotifications`, `makoctl list -j`) drops every hint (no `value`, no image) and the timeout. mako was in DND mode when this was written.
+- darkman: `darkman get` prints the current mode (`dark` or `light`). Hooks live in `~/.local/share/darkman/` (`waybar.sh`, `sway.sh`, `rofi.sh`). darkman runs every file in that directory that has the executable bit set, whatever its extension (`man darkman`). It runs as the `darkman.service` user unit. On 2026-11-11 its environment had `WAYLAND_DISPLAY=wayland-1`, but at login it may start before sway exports that variable. `sway.sh` avoids `swaymsg reload` because reloading respawns the bar and re-tiles every window.
+
+Notification senders:
+
+- `~/bin/volume-helper`: app `volume`, `--expire-time 800`, `--transient`, synchronous tag `volume`, `int:value`.
+- Brightness and microphone bindings in `~/.config/sway/config.d/60-bindings-brightness.conf` and `60-bindings-volume.conf`: same pattern with apps `brightness` and `microphone`.
+- `~/Documents/scripts/screenshot.sh`: app `screenshot`, `-i <file>`, `-A discard=Discard`, blocking in a background subshell.
+- `~/bin/battery-appindicator`: Rust binary sending over zbus. Its battery alerts are critical.
+
+### Quickshell snapshot `dacfa9d`
+
+Source: the `.qmltypes` files from the RPM (installed under `/usr/lib64/qt6/qml/Quickshell/`) and the upstream source at commit `dacfa9d`.
+
+General:
+
+- The binary is `quickshell`. The RPM ships no `qs` symlink.
+- Command-line flags:
+  - `-p/--path` selects a config directory, `-c` a named config.
+  - `-d` daemonizes, `--no-duplicate` refuses a second instance of the same config. The help text lists `-n` for both `--newest` and `--no-duplicate`, so scripts and units use the long forms.
+  - The subcommands are `ipc`, `log` and `list`.
+  - IPC only sees instances on the current Wayland display unless `--any-display` is passed.
+- Modules are imported with `import qs.path.to.module` (since 0.2.0). The `Quickshell` module exports `Singleton`, `PersistentProperties`, `Variants`, `Region`, `ScriptModel`, `LazyLoader`, `SystemClock`, `QsMenuAnchor` and `QsMenuOpener`. The `Quickshell` global has `stateDir`, `statePath()`, `iconPath()`, `screens`, `watchFiles` and `reload()`.
+
+Windows:
+
+- `PanelWindow`: `anchors`, `margins`, `exclusiveZone`, `exclusionMode` (`Normal`, `Ignore`, `Auto`), `aboveWindows`, `focusable`. `QsWindow` adds `mask` (a `Region`), `visible`, `screen` and `color`.
+- `WlrLayershell`: `layer` (`Background`, `Bottom`, `Top`, `Overlay`), `namespace`, `keyboardFocus` (`None`, `Exclusive`, `OnDemand`).
+- `PopupWindow` (`parentWindow`, `relativeX`, `relativeY`, `anchor`, `grabFocus`) and `FloatingWindow` (a normal toplevel, usable as a fullscreen test client).
+
+Notifications (`Quickshell.Services.Notifications`, source `src/services/notifications/`):
+
+- `NotificationServer` properties: `keepOnReload`, `bodySupported`, `bodyMarkupSupported`, `actionsSupported`, `imageSupported`, `persistenceSupported`, `extraHints`, `trackedNotifications`. It has one signal, `notification(n)`.
+  - A notification that is not tracked when the handler returns is closed and deleted at once.
+  - A `replaces_id` update calls `updateProperties` on the existing object. No new `notification` signal fires.
+  - On reload with `keepOnReload`, tracked notifications are re-emitted with `lastGeneration = true`.
+  - If the bus name is taken, the server logs a warning and retries when the owner leaves (`QDBusServiceWatcher`).
+- `Notification`:
+  - Properties: `id`, `tracked`, `lastGeneration`, `expireTimeout`, `appName`, `appIcon`, `summary`, `body`, `urgency`, `actions`, `resident`, `transient`, `desktopEntry`, `image`, `hints`.
+  - Methods: `expire()`, `dismiss()`. Signal: `closed(reason)`.
+  - `hints` holds every hint except image data: `image-data`, `image_data`, `icon_data` and `image-path` become `image`. So `value` and `x-canonical-private-synchronous` arrive in `hints`.
+- The server runs no expiry timers.
+- `NotificationAction.invoke()` emits `ActionInvoked(id, identifier)`, then closes the notification as Dismissed unless it is `resident`.
+- Close reasons are `Expired`, `Dismissed` and `CloseRequested`, sent as D-Bus reasons 1, 2 and 3.
+
+Tray and sway:
+
+- `Quickshell.Services.SystemTray`: `SystemTray.items`. `SystemTrayItem` has `id`, `title`, `status` (`Passive`, `Active`, `NeedsAttention`), `category`, `icon`, `tooltipTitle`, `tooltipDescription`, `hasMenu`, `menu`, `onlyMenu`, and the methods `activate()`, `secondaryActivate()`, `scroll()` and `display()`.
+- The watcher (`src/services/status_notifier/watcher.cpp`) registers `org.kde.StatusNotifierWatcher` and retries when the current owner leaves.
+- `Quickshell.I3`: the `I3` singleton (`focusedMonitor`, `focusedWorkspace`, `monitors`, `workspaces`, `dispatch()`), `I3Monitor` (`name`, `focused`, `scale`, `focusedWorkspace`), `I3Workspace` (`name`, `number`, `focused`, `active`, `urgent`, `monitor`, `activate()`). It works with sway. `I3IpcListener` (`subscriptions`) delivers `I3Event` objects (`type`, `data`) for events such as `mode`.
+- `Quickshell.Io` provides `FileView`, `Process`, `SplitParser` and `IpcHandler` (`target`, `enabled`).
+
+## 3. Repository layout
+
+M0 creates this tree, and later milestones fill it in:
+
+```
+bar/
+  CLAUDE.md               agent guide: commands, rules, gotchas
+  Makefile
+  shell.qml               ShellRoot: services, bar and overlay per screen, IPC handlers
+  services/
+    Notifs.qml            Singleton: NotificationServer, queue, timers, DND, history
+    Rules.js              pure JS rules and classify(), no QML imports
+    Theme.qml             Singleton: palettes, darkman mode, theme IPC
+    Motion.qml            Singleton: durations and easing curves
+    Sway.qml              Singleton: workspaces per output, binding mode
+  bar/
+    Bar.qml               PanelWindow (Bottom layer) per screen
+    Workspaces.qml
+    Mode.qml
+    Clock.qml             clock and calendar popup
+    Tray.qml
+  overlay/
+    Overlay.qml           PanelWindow (Overlay layer) per screen, mask, kind switching
+    OsdView.qml
+    NoteView.qml
+    RichView.qml
+  themes/
+    base16-default-dark.css
+    base16-default-light.css
+  shaders/
+    wipe.frag             compiled to wipe.frag.qsb by make shaders
+  tests/
+    nested.sh             headless sway on a private bus, running quickshell on this tree
+    sway-nested.conf      minimal sway config for the nested session
+    session.conf          private D-Bus config without service directories
+    matrix.sh             the SPEC.md test matrix
+    fake-sni.py           fake tray item with a menu (python3-dbus-next)
+    fake-screenshot.sh    the notify part of screenshot.sh, without grimshot or gio trash
+    client/shell.qml      FloatingWindow test client (urgent and fullscreen cases)
+    rules.test.mjs        node --test unit tests for services/Rules.js
+  packaging/
+    bar.service                                 systemd user unit (M8)
+    org.freedesktop.Notifications.service       D-Bus activation file (M8)
+    darkman-bar.sh                              darkman hook (M8)
+  docs/
+    SPEC.md
+    PLAN.md
+    reference/            waybar and mako configs that bar replaces (read-only)
+```
+
+`.test/` holds all runtime output (sockets, bus address, logs, screenshots, the test state directory) and is ignored by git.
+
+## 4. Test harness
+
+`tests/nested.sh` starts an isolated desktop:
+
+1. `dbus-run-session --config-file=tests/session.conf` starts a private session bus. `session.conf` lists no service directories, so a notification sent before Quickshell is ready cannot activate mako, which stays installed until cutover.
+2. Inside it, `env -i` keeps only `HOME`, `PATH`, `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS`. It then sets `SWAYSOCK=$REPO/.test/sway.sock`, `WLR_BACKENDS=headless`, `WLR_LIBINPUT_NO_DEVICES=1`, `XDG_STATE_HOME=$REPO/.test/state` and `XDG_CACHE_HOME=$REPO/.test/cache`, and starts `sway -c $REPO/tests/sway-nested.conf`. Every path is absolute (`$REPO` is the repository root). A relative `XDG_*` value is likely to be ignored, which would put test state in the real `~/.local/state`.
+3. `sway-nested.conf`:
+   - `xwayland disable`
+   - `output HEADLESS-1 mode --custom 3840x2400 scale 2`, to match eDP-1
+   - the modes used by case B3: `resize`, and a mode named like the `present:` cheat sheet
+   - no `bar {}` block
+   - `exec quickshell -p $REPO`
+   - an `exec` that writes `$WAYLAND_DISPLAY` and the bus address to `$REPO/.test/env`
+4. The script waits until `org.freedesktop.Notifications` has an owner on the private bus (`gdbus call` to `GetNameOwner`) before returning.
+
+Using the session:
+
+- `source .test/env`, then run `notify-send`, `grim -o HEADLESS-1` and `quickshell ipc -p $REPO call ...` against the nested session.
+- Clicks: `swaymsg -s $REPO/.test/sway.sock seat seat0 cursor set <x> <y>`, then `cursor press button1` and `cursor release button1` (spike S4 confirms this works headless).
+- Outputs: `swaymsg create_output` and `output HEADLESS-2 unplug` simulate a dock.
+- Test client: `quickshell -p $REPO/tests/client` opens a `FloatingWindow`. `swaymsg` makes it urgent or fullscreen.
+- Tray: `tests/fake-sni.py` registers a fake item with a menu and logs every call to `.test/logs/fake-sni.log`.
+- Bus log: `dbus-monitor` on the private bus, saved to `.test/logs/`.
+- Quickshell log: `quickshell log -p $REPO` with the nested `WAYLAND_DISPLAY`.
+- `make reference` starts a second nested session running waybar with `docs/reference/waybar/config.jsonc` and `style.css` (plus a `base16-theme.css` copy of the dark palette next to them), and saves a screenshot of its bar. It is the visual target for M2.
+
+## 5. Milestones
+
+Dependencies:
+
+| Milestone | Starts after |
+|---|---|
+| M1 notification core | M0 |
+| M2 bar | M0 |
+| M3 OSD view | M1 |
+| M4 note view | M1 and M2 |
+| M5 rich mode and input | M4 |
+| M6 outputs and theme transitions | M2 and M3 |
+| M7 polish | M5 and M6 |
+| M8 cutover | M7 |
+
+M1 and M2 run in parallel, then M3 and M4, then M5 and M6. Each milestone gets its own branch (`mN-slug`).
+
+### M0: bootstrap and spike
+
+Blocked until the owner runs `sudo dnf install quickshell qt6-qtdeclarative-devel`. Agents cannot use `sudo`.
+
+Tasks:
+
+1. Create the layout from section 3, the `.gitignore` (`.test/`) and a `Makefile` with the targets listed in `CLAUDE.md`.
+2. Write `tests/nested.sh`, `tests/sway-nested.conf`, `tests/session.conf` and `make reference` as described in section 4. The script cleans up the nested sway on exit or interrupt.
+3. Write a minimal `shell.qml`: a bottom-layer bar with a static label per screen, and an overlay that shows a solid `base0D` strip through a temporary IPC function `notify.debugShow(on: bool)`.
+4. Write `tests/client/shell.qml` and a first version of `tests/fake-sni.py`.
+5. Run the spikes below and write each result, with evidence paths, into section 8.
+
+Spikes:
+
+- **S1** The bar's exclusive zone works at scale 2: with bar running, the workspace rect is 1176 px tall (`swaymsg -t get_workspaces`).
+- **S2** The overlay lies on the bar: with `ExclusionMode.Ignore`, the overlay's bottom edge is the output's bottom edge, not 24 px above it. Proof: a screenshot of the bottom 30 px, with the strip covering exactly the bar's rows.
+- **S3** The overlay mask passes input through: with the strip shown over part of the bar only, a click on a bar label outside it reaches the bar. With the overlay unmapped, no surface remains.
+- **S4** `seat seat0 cursor` commands synthesize clicks in headless sway. If they do not, input tests go through IPC, and clicks become a manual check in M8.
+- **S5** With `session.conf`, a `notify-send` sent before Quickshell starts fails, and no mako process appears.
+- **S6** A fullscreen test client covers the bottom-layer bar, and the overlay strip still shows above it.
+- **S7** Handoff: a screenshot of the idle bar center and one of the overlay's first frame, drawing the same clock, are identical (`compare -metric AE` from ImageMagick, or a small Python diff).
+- **S8** `PersistentProperties` keeps a `var` array of plain objects across a reload.
+- **S9** Tray: `SNI_WAIT_TIMEOUT=10 /usr/libexec/sway-systemd/wait-sni-ready` exits 0 in the nested session. The fake item appears, and its menu opens through `QsMenuAnchor` from the bottom-layer bar. Sub-check: the menu accepts arrow keys and Escape while the bar's keyboard focus is `None`. Record whether `OnDemand` is needed.
+- **S10** sway mode: an `I3IpcListener` subscribed to `mode` receives the event after `swaymsg mode resize`, and `swaymsg -t get_binding_state` gives the initial mode. Note the format `subscriptions` expects.
+- **S11** Setting `Quickshell.watchFiles` to false stops the reload when a file changes. The live copy (M8) depends on it.
+
+Done when: `make nested` and `make reference` start and stop cleanly twice in a row, and section 8 holds all eleven results.
+
+### M1: notification core
+
+Tasks:
+
+1. `services/Rules.js` with the table from SPEC section 5, and `tests/rules.test.mjs` covering every row, the timeout resolution and the DND exceptions.
+2. `services/Notifs.qml`:
+   - `NotificationServer` with `keepOnReload: true`, `bodySupported`, `bodyMarkupSupported`, `actionsSupported` and `imageSupported` set to true.
+   - Tracking on arrival, re-tracking of reload survivors, timers per SPEC section 6, the queue with its 30 s limit, synchronous-tag replacement and the reaction to `replaces_id` updates.
+   - DND and the last theme mode in `state.json` under `Quickshell.stateDir`, DND on by default. History in `PersistentProperties`.
+3. The `notify` IPC handler with every function from SPEC section 9.
+4. A debug view in the overlay: the current notification as plain text in the center, without animation.
+
+Done when:
+
+- `make test` passes.
+- Matrix cases N1, N3, N5, N8, N9, N10, N11, N13 and N14 pass, and the bus log shows the expected `NotificationClosed` reasons at the expected times.
+- The `screenshot.sh` contract passes through IPC: `tests/fake-screenshot.sh` waits in the background, `quickshell ipc ... call notify invoke discard` makes it print `discard`, and a second run that just times out prints nothing and exits.
+
+### M2: bar
+
+Tasks:
+
+- `bar/Bar.qml` per screen, with `Workspaces.qml`, `Mode.qml`, `Clock.qml` (with the calendar popup) and `Tray.qml`, per SPEC section 3.
+- `services/Sway.qml` and `services/Theme.qml` (palettes in `themes/`, startup mode from `darkman get` with the state fallback, the `theme` IPC handler).
+
+Done when:
+
+- Matrix cases B1 to B6 pass.
+- A screenshot of the idle bar next to the `make reference` screenshot shows the same layout, colors and font. The owner has compared the two.
+- Dark and light screenshots exist, switched with `call theme set`.
+
+### M3: OSD view
+
+Tasks: `overlay/OsdView.qml` per SPEC sections 4 and 7, with fill colors from the rules and the split label.
+
+Done when:
+
+- Matrix cases N5 and N6 produce frame series (screenshots at 0, 60, 120, 300 and 900 ms).
+- Rapid presses never show a second surface or replay the entry animation.
+- Case B7 passes for the OSD part.
+- The owner has looked at the frames.
+
+### M4: note view
+
+Tasks:
+
+- The center span and its width rule (SPEC section 4), the clock handoff (SPEC section 2).
+- The entry and exit animations, the marquee, the progress line, the queue roll with its `+N` counter, and the critical style.
+
+Done when:
+
+- Matrix cases N1 to N4 and N15 produce frame series, and N16 passes.
+- The first and last overlay frames match the idle bar center (the S7 method).
+- With the long mode name active, the note still gets at least 600 px.
+- The marquee does not start when the text fits.
+- While idle, the Quickshell process stays near 0 % CPU (`top -b -n 5 -d 1 -p <pid>`, output saved to `.test/logs/`).
+
+### M5: rich mode and input
+
+Depends on open decision D1. Until then, build the default from SPEC section 4.
+
+Tasks:
+
+- `overlay/RichView.qml` and the card animation.
+- Click handling per the rules table, the middle click and hover pause.
+- The overlay mask for the card.
+- The D5 behavior for notes over fullscreen windows.
+
+Done when:
+
+- Matrix case N7 passes all three outcomes with `tests/fake-screenshot.sh` and a generated PNG.
+- Hover pause is shown by moving the cursor onto the note and back.
+- Case B7 passes for the note part.
+
+### M6: outputs and theme transitions
+
+Tasks:
+
+- `Variants` over the screens for both windows, workspaces per output, focused-output selection for notifications, hotplug handling.
+- Theme transitions while a note or an OSD is visible.
+
+Done when:
+
+- Matrix case N12 passes.
+- `create_output` and `unplug` while a note is visible leave no error in the Quickshell log, and the remaining bar keeps its exclusive zone.
+- `call theme set light` during an OSD changes colors without unmapping anything (the workspace rect height does not change).
+
+### M7: polish
+
+Tasks:
+
+- The wipe edge as a GLSL shader (`shaders/wipe.frag`, built by `make shaders` with `qsb`), or a `MultiEffect` glow if the shader brings nothing visible.
+- Tuning the `Motion.qml` values with the owner.
+- A review session: frame series, or a `wf-recorder` clip of the nested output if that tool is installed.
+
+Done when: the owner signs off on the visuals.
+
+### M8: cutover
+
+This milestone replaces waybar and mako on the live desktop. It starts only after the owner gives an explicit go-ahead in the session, with D1 to D5 answered. See section 6.
+
+Done when:
+
+- bar owns `org.freedesktop.Notifications` and `org.kde.StatusNotifierWatcher`.
+- The live checks in section 6 pass, including a logout and login.
+- The owner has used it for a day without rolling back.
+
+## 6. Cutover and rollback
+
+The live instance runs from a copy, with file watching off. Quickshell reloads whenever its files change, and a reload of the live bar would unmap it and re-tile every window.
+
+Cutover steps:
+
+1. `make install` copies the tagged tree to `~/.local/share/bar` (`rsync`, excluding `.git`, `.test`, `docs` and `tests`) and marks the copy as live, so that it sets `Quickshell.watchFiles` to false.
+2. Install `packaging/bar.service` to `~/.config/systemd/user/`:
+   - `[Unit]`: `PartOf=graphical-session.target`, `After=graphical-session.target`, `StartLimitIntervalSec=60`, `StartLimitBurst=5`
+   - `[Service]`: `Type=dbus`, `BusName=org.freedesktop.Notifications`, `ExecCondition=/bin/sh -c '[ -n "$WAYLAND_DISPLAY" ]'`, `ExecStart=/usr/bin/quickshell -p %h/.local/share/bar --no-duplicate`, `Restart=on-failure`, `RestartSec=1`
+   - `[Install]`: `WantedBy=sway-session.target`, so the watcher is up within `wait-sni-ready`'s 25 s at login
+
+   Then run `systemctl --user daemon-reload` and `systemctl --user enable bar.service`.
+3. Install `packaging/org.freedesktop.Notifications.service` to `~/.local/share/dbus-1/services/`: `Name=org.freedesktop.Notifications`, `Exec=/usr/bin/quickshell -p /home/acm/.local/share/bar --no-duplicate` (D-Bus files do not expand `%h`), `SystemdService=bar.service`.
+4. The owner runs `systemctl --user stop mako.service && sudo dnf remove mako`. This also deletes mako's activation file, so bar's file is the only one claiming the name. Then ask the bus to reload (`busctl --user call org.freedesktop.DBus / org.freedesktop.DBus ReloadConfig`).
+5. Count the tray items: `busctl --user get-property org.kde.StatusNotifierWatcher /StatusNotifierWatcher org.kde.StatusNotifierWatcher RegisteredStatusNotifierItems` (11 on 2026-11-11).
+6. In `~/.config/sway/config.d/90-bar.conf`, comment out the `bar {}` block first, so that no later `swaymsg reload` brings waybar back. Handle `bindsym $mod+m` per D4. Do not reload sway: `exec_always` entries (the wallpaper rotation) would run again.
+7. `pkill -x waybar`, then check for 10 s that sway does not start it again.
+8. `systemctl --user start bar.service`. Check that `busctl --user status org.freedesktop.Notifications` and `busctl --user status org.kde.StatusNotifierWatcher` both show `quickshell`, then count the tray items again. An applet that did not register again gets restarted, and its name goes in the CLAUDE.md gotchas.
+9. darkman: `chmod -x ~/.local/share/darkman/waybar.sh` (renaming is not enough, since darkman runs any executable file in the directory). Install `packaging/darkman-bar.sh` as `~/.local/share/darkman/bar.sh` with the executable bit set. The hook calls `quickshell ipc --any-display -p ~/.local/share/bar call theme set "$1"` (SPEC section 10).
+10. Add the D3 bindings in a new `~/.config/sway/config.d/` file, and apply them live with `swaymsg bindsym ...` (again without a reload).
+
+Live checks, with fictional text where a notification is involved:
+
+- All tray icons present. One menu opened and closed, with no entry clicked.
+- A click on a workspace button, `$mod+r` for the `resize` label, the `present:` mode text in full.
+- Clock toggle and calendar popup.
+- One press each of the volume, brightness and microphone keys, also over a fullscreen window.
+- A screenshot followed by a right click (the file must go to the trash).
+- A DND toggle, a plain note, a critical note.
+- `darkman toggle` twice.
+- `systemctl --user restart bar.service`, then the tray count is back to its value from step 5.
+- A logout and login: bar is up, and the tray count matches.
+
+About a week later: `sudo dnf remove waybar` (optional), and archive `~/.config/waybar` and `~/.config/mako` (copies are in `docs/reference/`).
+
+Rollback:
+
+1. `systemctl --user disable --now bar.service`, then remove `~/.local/share/dbus-1/services/org.freedesktop.Notifications.service`.
+2. `sudo dnf install mako`.
+3. Restore the `bar {}` block in `90-bar.conf`, `chmod +x ~/.local/share/darkman/waybar.sh`, and remove `bar.sh`.
+4. `swaymsg reload` to start waybar again (this one reload is accepted), and `makoctl mode -a do-not-disturb` to bring DND back.
+
+## 7. Open decisions
+
+- **D1, screenshots and other image notifications.** Two parts:
+  - Layout. Default: rich mode, a 72 px thumbnail card above the center span. Alternative: a separate popup at top center, like mako today.
+  - Scope. Default: rich mode for `screenshot` only, while other apps' images fill the 16 px icon. Alternative: rich mode for any notification with an image. Browsers and chat apps send avatars and site icons as `image-data`, so most of their notifications would then become 96 px cards.
+
+  Needs an answer before M5.
+- **D2, critical notifications.** Default: they stay until clicked, which changes mako's current behavior. Needs confirmation before M4.
+- **D3, sway bindings.** Keys for `toggleDnd`, `dismiss`, `dismissAll` and `restore`. Needs an answer before M8.
+- **D4, `$mod+m`.** It does nothing today. Default: remove the binding. Alternative: bind it to `bar.toggle()`, which hides the bar and re-tiles the windows each time. Needs an answer before M8.
+- **D5, notes over fullscreen windows.** Default: show them, since the overlay is above fullscreen windows anyway. Alternative: hold notes in the queue while the output shows a fullscreen window (OSDs and critical notifications still show), which needs fullscreen tracking through sway IPC. Needs an answer before M5.
+
+## 8. Spike results
+
+M0 fills this section: one entry per spike, with the result, the evidence path in `.test/` and any change it forces on `SPEC.md`.

@@ -1,0 +1,45 @@
+// -*- mode: jsonc -*-
+{
+  "position": "bottom",
+  "layer": "bottom",
+  "height": 24,
+  "spacing": 2,
+  "modules-left": [
+    "sway/workspaces",
+    "sway/mode"
+    // "sway/scratchpad"
+  ],
+  "modules-center": [
+    "clock"
+  ],
+  "modules-right": [
+    "tray"
+  ],
+  // Modules configuration
+  "sway/workspaces": {
+    "disable-scroll": true
+  },
+  "sway/mode": {
+    "format": "<span style=\"italic\">{}</span>"
+  },
+  "sway/scratchpad": {
+    "format": "{icon} {count}",
+    "show-empty": false,
+    "format-icons": [
+      "",
+      ""
+    ],
+    "tooltip": true,
+    "tooltip-format": "{app}: {title}"
+  },
+  "tray": {
+    "spacing": 14
+  },
+  "clock": {
+    // "timezone": "America/New_York",
+    "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>",
+    "interval": 1,
+    "format": "{:%Y-%m-%d %H:%M}",
+    "format-alt": "{:%H:%M:%S}"
+  }
+}
