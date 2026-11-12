@@ -31,7 +31,7 @@ These were checked on 2026-11-10 and 2026-11-11. Re-check a fact before relying 
 ### System
 
 - Fedora 44, sway 1.11, waybar 0.15.0, mako 1.11.0, darkman 2.2.0.
-- Quickshell `0.2.1^git20260209.dacfa9d-5.fc44` is in the `updates` repository but **not installed**. Qt 6.11.2 `qtbase`, `qtdeclarative`, `qtshadertools` (provides `qsb`) and `qt5compat` are installed. `qmllint` is not installed (it comes with `qt6-qtdeclarative-devel`). `node` v22, `python3-dbus-next` and `python3-tenacity` are available. foot and weston are not installed.
+- Quickshell `0.2.1^git20260209.dacfa9d-5.fc44` and `qt6-qtdeclarative-devel` 6.11.2 (for `qmllint`, at `/usr/lib64/qt6/bin/qmllint`) are installed since 2026-11-11. Qt 6.11.2 `qtbase`, `qtdeclarative`, `qtshadertools` (provides `qsb`) and `qt5compat` are installed. `node` v22, `python3-dbus-next`, `python3-tenacity`, Pillow, ImageMagick 7, `grim`, `wtype` and `wf-recorder` are available. foot, weston, `wlrctl` and `python3-pywayland` are not installed.
 - eDP-1 is 1920x1200 logical at scale 2. External outputs come and go with the docks.
 - waybar runs as `waybar -b bar-0` from the `bar {}` block in `~/.config/sway/config.d/90-bar.conf`. Its config has no `"ipc": true`, so it ignores sway's `mode hide`. The bar is always docked and 24 px high (the workspace is 1176 px tall out of 1200), and `$mod+m` (`bar hidden_state toggle`) does nothing.
 - sway modes: `resize`, `passthrough` and the `present:` cheat-sheet mode (`60-bindings-present.conf`), whose name waybar cuts short.
@@ -158,10 +158,14 @@ bar/
    - an `exec` that writes `$WAYLAND_DISPLAY` and the bus address to `$REPO/.test/env`
 4. The script waits until `org.freedesktop.Notifications` has an owner on the private bus (`gdbus call` to `GetNameOwner`) before returning.
 
+As built in M0, the two `exec` lines are one: `exec "$BAR_REPO/tests/nested.sh" _inside`. That step writes `.test/env`, starts `tests/vpointer.py` (spike S4) and then the client of the chosen variant: `bar` (quickshell on this tree), `bare` (nothing, for spike S5) or `waybar` (`make reference`). `NESTED_DIR` selects the runtime directory, so the reference session uses `.test/reference/`.
+
 Using the session:
 
-- `source .test/env`, then run `notify-send`, `grim -o HEADLESS-1` and `quickshell ipc -p $REPO call ...` against the nested session.
-- Clicks: `swaymsg -s $REPO/.test/sway.sock seat seat0 cursor set <x> <y>`, then `cursor press button1` and `cursor release button1` (spike S4 confirms this works headless).
+- `tests/nested.sh run <command>` runs a command inside the session under `env -i`, so nothing from the live session leaks in. It is the safe way to run `notify-send`, `grim -o HEADLESS-1`, `quickshell ipc -p $REPO call ...`, `tests/fake-sni.py` and the test client. `source .test/env` also works in a shell that is used for nothing else.
+- Clicks: `tests/nested.sh click <x> <y> [button]` in logical coordinates. It runs `swaymsg seat seat0 cursor set <x> <y>`, then `cursor press` and `cursor release`. These only reach clients because `tests/vpointer.py` gives the headless seat a pointer (spike S4).
+- Keys: `tests/nested.sh run wtype -k <key>`. For a test that depends on keyboard focus, hold a keyboard on the seat first with `wtype -s 3600000` in the background.
+- Image checks: `tests/rows.py` summarizes the rows of a screenshot, `tests/pixdiff.py` compares two screenshots exactly.
 - Outputs: `swaymsg create_output` and `output HEADLESS-2 unplug` simulate a dock.
 - Test client: `quickshell -p $REPO/tests/client` opens a `FloatingWindow`. `swaymsg` makes it urgent or fullscreen.
 - Tray: `tests/fake-sni.py` registers a fake item with a menu and logs every call to `.test/logs/fake-sni.log`.
@@ -191,7 +195,7 @@ Model choice: Fable 5.2 takes the milestones where a mistake is expensive or har
 
 ### M0: bootstrap and spike
 
-Blocked until the owner runs `sudo dnf install quickshell qt6-qtdeclarative-devel`. Agents cannot use `sudo`.
+Done on 2026-11-12 (branch `m0-bootstrap`). Results are in section 8, with two open questions for the owner.
 
 Tasks:
 
@@ -383,4 +387,163 @@ The owner answered these on 2026-11-11. A change to one of them is the owner's c
 
 ## 8. Spike results
 
-M0 fills this section: one entry per spike, with the result, the evidence path in `.test/` and any change it forces on `SPEC.md`.
+Run on 2026-11-11 and 2026-11-12 in the nested session (sway 1.11 headless, HEADLESS-1 at 3840x2400 scale 2, Quickshell `dacfa9d`). Each entry gives the result, the evidence in `.test/` and what it changes. `.test/` is not in git: `.test/logs/spikes/S<n>.log` holds the command output, `.test/shots/spikes/` the screenshots. The bar's 24 px are the physical rows 2352 to 2399 of a screenshot.
+
+Summary:
+
+| Spike | Result | Changes |
+|---|---|---|
+| S1 exclusive zone | pass | none |
+| S2 overlay on the bar | pass | none |
+| S3 overlay mask | pass | none |
+| S4 synthetic clicks | pass, with a virtual pointer | harness: `tests/vpointer.py` |
+| S5 no activation on the private bus | pass | none |
+| S6 fullscreen layering | pass | none |
+| S7 handoff | pass with grayscale text only | `shell.qml` pragma, question Q1 |
+| S8 `PersistentProperties` | fails for `property var`, passes for `list<var>` | SPEC section 6 |
+| S9 tray | pass, keys need `OnDemand` at click time | `shell.qml` pragma, SPEC sections 3 and 8, question Q2 |
+| S10 sway events | pass | none |
+| S11 `watchFiles` | pass | none |
+
+### S1: exclusive zone at scale 2
+
+Pass. With bar running, `swaymsg -t get_workspaces` gives the rect `1920x1176` on a `1920x1200` output at scale 2.
+
+Evidence: `.test/logs/spikes/S1.log`.
+
+### S2: the overlay lies on the bar
+
+Pass. The overlay (`ExclusionMode.Ignore`, 96 px high, anchored left, right and bottom) puts its bottom edge on the output's bottom edge. With the full-width strip shown, rows 2352 to 2399 are one color (`#7cafc2`, `base0D`) over all 3840 columns, and rows 2340 to 2351 above them are unchanged. The Wayland trace shows `set_exclusive_zone(-1)` for the overlay and `set_exclusive_zone(24)` for the bar.
+
+Evidence: `.test/logs/spikes/S2.log`, `.test/shots/spikes/S2-idle.png`, `S2-strip.png` and their `-bottom30` crops.
+
+### S3: the overlay mask passes input through
+
+Pass. With the strip drawn over the middle third only (`mask: Region { item: content }`):
+
+- A click on the bar label at (40, 1188), inside the overlay window and outside its mask, reaches the bar.
+- A click on the strip at (960, 1188) reaches the overlay and not the bar.
+- The trace shows `wl_region.add(640, 72, 640, 24)` followed by `set_input_region`.
+
+With the overlay unmapped, no surface remains. Quickshell creates the layer surface only when `visible` becomes true, and it sends `zwlr_layer_surface_v1.destroy` and `wl_surface.destroy` when `visible` becomes false. `swaymsg -t get_outputs` lists no layer surfaces in sway 1.11, so the proof is a `WAYLAND_DEBUG=1` trace.
+
+Evidence: `.test/logs/spikes/S3.log` (clicks and the filtered trace), `S3-wayland-debug.raw` (full trace), `.test/shots/spikes/S3-part.png`.
+
+### S4: synthetic clicks in headless sway
+
+Pass, with one addition to the harness. A plain headless sway has no input device: `get_seats` reports capabilities 0, the `seat seat0 cursor` commands answer `success` and no client receives anything. Once a pointer exists, the same commands produce real pointer events.
+
+`tests/vpointer.py` creates that pointer through the `zwlr_virtual_pointer_manager_v1` protocol and keeps it until the compositor exits. It speaks the Wayland wire protocol directly, since `python3-pywayland` and `wlrctl` are not installed. `tests/nested.sh` starts it with every session and waits for it. `tests/nested.sh click <x> <y> [button]` wraps the three cursor commands, with logical coordinates.
+
+Input tests therefore stay automatic, and clicks do not become a manual check in M8.
+
+Keyboard: `wtype` is installed and works in the nested session. A single `wtype -k <key>` adds a keyboard to the seat only for the length of the call. A test that depends on keyboard focus first starts `wtype -s 3600000` in the background to hold a keyboard on the seat (S9).
+
+Evidence: `.test/logs/spikes/S4.log`.
+
+### S5: nothing activates on the private bus
+
+Pass. In a session without Quickshell (`tests/nested.sh start bare`), `ListActivatableNames` returns only `org.freedesktop.DBus`. `notify-send` fails with `org.freedesktop.DBus.Error.ServiceUnknown` and exit status 1. The only mako process before and after is the live one (same PID).
+
+Evidence: `.test/logs/spikes/S5.log`.
+
+### S6: fullscreen client
+
+Pass. With the test client fullscreen, rows 2340 to 2399 show only the client's color: the bottom-layer bar is covered. With the strip shown, rows 2352 to 2399 are `base0D` again and the rows above stay the client's.
+
+Evidence: `.test/logs/spikes/S6.log`, `.test/shots/spikes/S6-tiled.png`, `S6-fullscreen.png`, `S6-fullscreen-strip.png`.
+
+### S7: handoff
+
+Pass, but only with grayscale text antialiasing. The comparison is exact: `tests/pixdiff.py` compares two full screenshots pixel by pixel and prints the count and the largest channel difference.
+
+| Text rendering | Idle bar against the overlay redrawing the clock |
+|---|---|
+| Qt default (distance field, subpixel antialiasing) | 9 to 18 pixels differ, each by 1/255 on one channel |
+| `//@ pragma Env QSG_DISTANCEFIELD_ANTIALIASING = gray` | 0 of 9,216,000 pixels differ |
+| `//@ pragma NativeTextRendering` | 0 of 9,216,000 pixels differ (also grayscale) |
+
+The 1/255 differences sit on the colored fringes of the glyphs. They cannot be seen, but they are not "pixel for pixel". `shell.qml` now carries the `QSG_DISTANCEFIELD_ANTIALIASING = gray` pragma, which satisfies the handoff rule as written. The result is the same with `//@ pragma UseQApplication` (needed by S9).
+
+Two observations for M2, from `make reference`:
+
+- waybar draws subpixel text (521 of the 524 colors in its clock are not gray). Grayscale text in bar is therefore a visible difference from the reference at high zoom. See Q1.
+- waybar's clock is 254 physical px wide, the Qt clock at `font.pixelSize: 15` is 238 px. Pango rounds the 7.5 px advance of the font to 8 px, Qt keeps 7.5. M2 has to match this (letter spacing or size) for the layout check.
+
+Evidence: `.test/logs/spikes/S7.log`, `.test/shots/spikes/S7-bar-idle.png`, `S7-overlay-handoff.png`, the `S7a-subpixel-*` and `S7v-*` pairs, `.test/shots/reference-vs-m0-center.png`.
+
+### S8: `PersistentProperties` across a reload
+
+Fails as the spike states it, passes with another property type.
+
+- A `property var` holding a JS array or a JS object is `undefined` after the reload, and the log says `JSValue can't be reassigned to another engine.`. After a second reload it is back at its default.
+- A `property list<var>` holding plain objects keeps them over two reloads. The objects come back as maps with sorted keys (`{"n":1,"text":"first entry"}`).
+- `list<string>`, `string`, `int`, and a `var` holding a string or a number are kept.
+
+Change: history (SPEC section 6, item 9) is a `property list<var>` in `PersistentProperties`. A JSON string is the fallback if an entry ever needs a type that `list<var>` does not carry.
+
+Evidence: `.test/logs/spikes/S8.log`, `S8-variants.qml` (the scratch config with one property per type).
+
+### S9: tray
+
+Watcher and host: pass. `SNI_WAIT_TIMEOUT=10 /usr/libexec/sway-systemd/wait-sni-ready` logs `Successfully waited for org.kde.StatusNotifierHost` after 0.4 s. The script exits 0 on failure too (checked in a session without a watcher), so the log line is the check, not the exit status. Matrix case B6 changes accordingly.
+
+Item and menu: pass. `tests/fake-sni.py` registers, the icon appears, a left click logs `Activate`, a right click opens the menu through `QsMenuAnchor` above the bottom-layer bar, a click on an entry logs `Event 2 clicked 'Sync demo data'`, and a click outside closes the menu.
+
+- `QsMenuAnchor` needs `//@ pragma UseQApplication` at the top of `shell.qml`. Without it, `open()` only logs an error.
+- The menu is a QtWidgets menu. It ignores `Theme` (white background in the nested session, `S9-menu-open-crop.png`). A menu in the bar's colors would need `QsMenuOpener` and a `PopupWindow` drawn in QML. See Q2.
+
+Keyboard sub-check, with a keyboard held on the seat and the test client focused (it logs the keys it gets):
+
+| Bar keyboard focus | Arrow keys, Return, Escape in the menu | Keyboard after the menu closes |
+|---|---|---|
+| `None` | ignored, they go to the focused window | stays with the window |
+| `OnDemand` only while a menu is open (SPEC section 8 as written) | ignored: sway gives the focus on a click, and the click happens while the focus is still `None` | stays with the window |
+| `OnDemand` always | work | stays with the bar until a window is clicked |
+| `OnDemand` while the pointer is on the tray or a menu is open | work | back with the window |
+
+So `OnDemand` is needed, and it has to be set before the click that opens the menu. The fourth row is the variant that works without side effects. See Q2.
+
+Evidence: `.test/logs/spikes/S9.log`, `.test/logs/fake-sni.log`, `.test/logs/client.log`, `.test/shots/spikes/S9-menu-open.png` and its crop.
+
+### S10: sway events
+
+Pass.
+
+- `subscriptions` takes a list of event names, as in the i3 `SUBSCRIBE` payload: `subscriptions: ["mode", "window"]`.
+- The reply to `SUBSCRIBE` arrives through `ipcEvent` as an event of type `subscribe`. Handlers ignore it.
+- `event.data` is a JSON string. `mode` events carry `change` (the mode name), `window` events carry `change` and `container`.
+- `swaymsg mode resize` gives `{type: "mode", change: "resize"}`. `swaymsg -t get_binding_state` gives `{"name": "default"}` at startup.
+- Fullscreen on and off give `window` events with `change: "fullscreen_mode"` and `container.fullscreen_mode` 1, then 0.
+- Quickshell logs `I3 event socket disconnected.` at start and at reloads. The events arrive all the same.
+
+Evidence: `.test/logs/spikes/S10.log`.
+
+### S11: `Quickshell.watchFiles`
+
+Pass. After `Quickshell.watchFiles = false`, touching `shell.qml`, `bar/Bar.qml` and `services/Theme.qml` and changing the content of a file cause no reload (the reload count in the log and a counter in memory both stay). After setting it back to true, the earlier changes are not replayed, and the next touch reloads. The spike set the property at run time through IPC. The live copy (M8) sets it at startup.
+
+Evidence: `.test/logs/spikes/S11.log`.
+
+### Done-when checks
+
+`make nested`, `make nested-stop` and `make reference` each ran twice in a row with exit status 0. After every stop, one sway, one waybar and one mako process remain (the live ones), no `quickshell`, one Wayland socket, and no `.test/sway.sock`. Evidence: `.test/logs/done-when.log`, `.test/shots/reference-bar.png`.
+
+No test state reached the real home: `~/.local/state/quickshell`, `~/.cache/quickshell`, `~/.local/share/quickshell` and `~/.config/quickshell` do not exist. Quickshell does leave one directory per instance under `$XDG_RUNTIME_DIR/quickshell/by-id/` (the real runtime directory, cleared at logout).
+
+### Other findings
+
+- `console.log` and `console.debug` are hidden by default (category `qml`, level debug). The tree logs with `console.info`. `--log-rules 'qml.debug=true'` shows the rest.
+- Singletons load on first use. `shell.qml` names `Notifs` and `Sway` in a property, or the notification server would not start until something reads it.
+- `//@ pragma` lines in `shell.qml` are read at process start, not on a hot reload. This snapshot knows `UseQApplication`, `NativeTextRendering`, `IgnoreSystemSettings`, `RespectSystemStyle`, `IconTheme <name>`, `Env VAR = VALUE`, `ShellId`, `DataDir`, `StateDir` and `CacheDir` (from the strings of `/usr/bin/quickshell`).
+- QML's `font` group has no `styleStrategy`, so subpixel antialiasing cannot be turned off per `Text`.
+- `node --test tests/` fails on node 22 (it takes the directory for a module). `make test` runs `node --test tests/*.test.mjs`.
+- `qmllint` cannot resolve `import qs.<dir>`. `tests/lint.sh` builds the modules under `.test/lint/` first. Four warnings remain, all from the Quickshell type files (listed in the script).
+- The nested `FloatingWindow` client is tiled by sway like any toplevel. Its title is `bar-test-client`.
+
+### Open questions for the owner
+
+These are questions about how bar looks or behaves, so M0 does not settle them.
+
+- **Q1, text antialiasing.** Grayscale text makes the handoff exact (S7) and is what the tree does now. Subpixel text is what waybar draws, and it leaves a handful of pixels off by 1/255 at each handoff, which cannot be seen. The choice is between the SPEC's "pixel for pixel" and the reference's text rendering. If subpixel wins, the handoff check in M4 becomes "largest channel difference 1/255".
+- **Q2, tray menus.** Two points. First, the keyboard: keep the bar at `WlrKeyboardFocus.None` and menus mouse-only, or switch to `OnDemand` while the pointer is on the tray. Second, the look: accept the QtWidgets menu of `QsMenuAnchor`, or draw the menu in QML with `QsMenuOpener` so that it uses `Theme`.

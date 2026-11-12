@@ -6,13 +6,14 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 ## Commands
 <!-- M0 creates these. Keep this list in sync with the Makefile. -->
 - `make nested`: start the isolated test desktop (headless sway, private D-Bus, quickshell on this tree). `make nested-stop` ends it.
+- `tests/nested.sh run <command>`: run a command inside the nested session (`env -i`, nested display and bus). `tests/nested.sh click <x> <y> [button]` clicks at logical coordinates.
 - `make reference`: nested session running waybar with `docs/reference/waybar/`, screenshot of its bar (visual target)
 - `make matrix`: run the `docs/SPEC.md` test matrix against the nested session. `make matrix CASE=N5` runs one case.
 - `make shots`: screenshot the nested output into `.test/shots/`
 - `make log`: follow the nested Quickshell log
-- `make test`: `node --test tests/` (unit tests for `services/Rules.js`)
+- `make test`: `node --test tests/*.test.mjs` (unit tests for `services/Rules.js`)
 - `make shaders`: compile `shaders/*.frag` to `.qsb` with `/usr/lib64/qt6/bin/qsb`
-- `make lint`: `qmllint` on all QML files (needs `qt6-qtdeclarative-devel`)
+- `make lint`: `qmllint` on all QML files through `tests/lint.sh` (needs `qt6-qtdeclarative-devel`)
 - `make install`: copy the tree to `~/.local/share/bar` as the live copy (M8 only, after the owner's go-ahead)
 
 ## Rules
@@ -52,3 +53,13 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - Harness paths (`SWAYSOCK`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`, the sway config) must be absolute. A relative `XDG_*` value is likely to be ignored, and test state would land in the real `~/.local/state`.
 - sway reuses an inherited `SWAYSOCK` and unlinks the path. A nested sway without an overridden `SWAYSOCK` breaks the live session's IPC.
 - `swaymsg reload` on the live session also re-runs every `exec_always` (the wallpaper rotation). M8 applies sway changes with direct `swaymsg` commands.
+- Run everything that talks to the nested session through `tests/nested.sh run`. A plain shell still has the live `WAYLAND_DISPLAY`, `SWAYSOCK` and bus address.
+- `console.log` and `console.debug` are hidden by default. Log with `console.info`.
+- Singletons load on first use. One that must run from startup (`Notifs`, `Sway`) is named in `shell.qml`.
+- `//@ pragma` lines in `shell.qml` take effect at process start, not on a hot reload. `UseQApplication` is required by `QsMenuAnchor`. `Env QSG_DISTANCEFIELD_ANTIALIASING = gray` is required by the pixel-exact handoff.
+- In `PersistentProperties`, a `property var` holding a JS array or object is `undefined` after a reload. Use `property list<var>`.
+- A headless sway seat has no pointer. `seat seat0 cursor` commands only reach clients while `tests/vpointer.py` runs (the harness starts it). Keyboard tests hold a keyboard with `wtype -s 3600000` in the background.
+- sway gives an `OnDemand` layer surface the keyboard only on a click. Setting `OnDemand` after the click that opens a tray menu is too late.
+- `wait-sni-ready` exits 0 on failure too. Check its `Successfully waited` log line.
+- The I3 event listener also delivers the reply to `SUBSCRIBE` as an event of type `subscribe`.
+- `pkill -f <pattern>` matches the shell that runs it when the pattern is on its own command line. Kill by PID.
