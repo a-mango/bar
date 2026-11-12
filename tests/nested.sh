@@ -36,7 +36,8 @@ session_env() {
         "XDG_STATE_HOME=$T/state" \
         "XDG_CACHE_HOME=$T/cache" \
         "BAR_REPO=$REPO" \
-        "BAR_TEST_DIR=$T"
+        "BAR_TEST_DIR=$T" \
+        "NESTED_DIR=$T"
 }
 
 alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
