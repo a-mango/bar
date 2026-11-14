@@ -8,9 +8,8 @@ import qs.bar
 // It is mapped only while it has something to show, and its input mask
 // covers only what it draws.
 //
-// M1 version: a debug view of the notification core, plain text without
-// animation. An OSD fills the bar's width, a note the middle half. M3 and
-// M4 replace it with OsdView and NoteView.
+// The OSD is OsdView (M3). Notes still use the M1 debug view, plain text
+// in the middle half without animation, until NoteView (M4).
 //
 // `mode` keeps the M0 spike content for tests: "strip" (base0D over the
 // whole bar), "part" (the middle third), "handoff" (the idle clock box).
@@ -21,12 +20,19 @@ PanelWindow {
     required property ShellScreen modelData
     property string mode: "off"
 
-    readonly property var osd: Notifs.osd
     readonly property var note: Notifs.current
-    readonly property bool showing: mode !== "off" || osd !== null || note !== null
+    // The OSD view stays active until its fade-out ends.
+    readonly property bool showing: mode !== "off" || osdView.active || note !== null
+    readonly property alias osdView: osdView
 
     // Spike S3/S4: clicks received by the drawn content.
     property int clicks: 0
+    // For tests: how many times the window was mapped (one layer surface each).
+    property int maps: 0
+    onVisibleChanged: {
+        if (visible)
+            maps += 1;
+    }
 
     function text(e: var): string {
         if (!e)
@@ -35,11 +41,8 @@ PanelWindow {
         const d = e.n ? {
             app: e.n.appName,
             summary: e.n.summary,
-            body: e.n.body,
-            value: e.n.hints.value
+            body: e.n.body
         } : e.data;
-        if (e.cls.kind === "osd")
-            return d.summary + (d.value !== undefined && d.value !== null ? "  " + d.value + "%" : "");
         return [d.app, d.summary, d.body].filter(t => t).join("  ·  ").replace(/\n/g, " · ");
     }
 
@@ -53,8 +56,9 @@ PanelWindow {
     exclusionMode: ExclusionMode.Ignore
     color: "transparent"
     visible: showing
+    // Only what takes clicks: nothing while the OSD fades out over the bar.
     mask: Region {
-        item: win.mode !== "off" ? spike : win.osd ? osdStrip : noteSpan
+        item: win.mode !== "off" ? spike : osdView.entry !== null ? osdView : win.note !== null ? noteSpan : null
     }
 
     WlrLayershell.layer: WlrLayer.Overlay
@@ -89,19 +93,13 @@ PanelWindow {
         }
     }
 
-    Rectangle {
-        id: osdStrip
-        visible: win.mode === "off" && win.osd !== null
+    // Above the note span: an OSD covers the whole bar.
+    OsdView {
+        id: osdView
+        visible: win.mode === "off" && active
         anchors.bottom: parent.bottom
         width: parent.width
-        height: Theme.barHeight
-        color: Theme.base00
-
-        BarText {
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: win.text(win.osd)
-            color: Theme.base05
-        }
+        dpr: win.devicePixelRatio
     }
 
     // ---- M0 spike content ----
@@ -125,7 +123,7 @@ PanelWindow {
     }
 
     MouseArea {
-        parent: win.mode !== "off" ? spike : win.osd ? osdStrip : noteSpan
+        parent: win.mode !== "off" ? spike : noteSpan
         anchors.fill: parent
         onClicked: {
             win.clicks += 1;

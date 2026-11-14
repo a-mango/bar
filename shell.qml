@@ -73,7 +73,16 @@ ShellRoot {
                 overlays: overlays.instances.map(o => ({
                             screen: o.screen.name,
                             clicks: o.clicks,
-                            visible: o.visible
+                            visible: o.visible,
+                            maps: o.maps,
+                            osd: {
+                                active: o.osdView.active,
+                                entries: o.osdView.entries,
+                                updates: o.osdView.updates,
+                                level: o.osdView.level,
+                                opacity: o.osdView.opacity,
+                                label: o.osdView.label
+                            }
                         })),
                 tray: SystemTray.items.values.map((item, index) => ({
                             id: item.id,
