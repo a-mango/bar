@@ -103,6 +103,8 @@ The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `ma
 | Critical | urgency `Critical` | like a note, on `base08` | 24 |
 | Rich | the rule enables rich mode (only `screenshot` by default) and an image is present: `image` is set, or `appIcon` is an absolute path to an image file | note line plus a 72 px card above the center span | 96 |
 
+The rule in section 5 decides the kind: only the apps `volume`, `brightness` and `microphone` are OSDs. Another app that sends a `value` hint stays a note (M1 choice, question Q3 in `PLAN.md` section 8).
+
 Center span: while a note is visible, it runs from the end of the left section (plus 8 px) to the start of the tray (minus 8 px). From left to right, it holds the compact clock `HH:mm`, a `│` separator in `base03`, then the note line.
 
 Note line, left to right:
@@ -126,7 +128,7 @@ Note line, left to right:
 | urgency critical, app `battery-appindicator` | critical | none | yes | yes | yes | default action if any, else dismiss | dismiss | `base08` background, `base07` text |
 | urgency critical, any other app | critical | none | no | yes | yes | default action if any, else dismiss | dismiss | as above |
 
-Timeout resolution: a positive `expireTimeout` from the sender wins (the OSD senders pass 800 ms). `-1` takes the rule's value. `0` never expires. One exception overrides all three: a notification that DND hides always expires after 5000 ms, because nobody can click a notification that is never drawn.
+Timeout resolution: a positive `expireTimeout` from the sender wins (the OSD senders pass 800 ms). `-1` takes the rule's value. `0` never expires. Quickshell delivers `expireTimeout` in milliseconds, as sent. One exception overrides all three: a notification that DND hides always expires after 5000 ms, because nobody can click a notification that is never drawn.
 
 Fullscreen (decision D5): a notification whose rule does not show over fullscreen waits in the queue while its target output shows a fullscreen window. This matches what the owner sees today, since mako's normal notifications were on the top layer, under fullscreen windows. OSDs, screenshots and critical notifications still show over the fullscreen window. Screenshots get the same reasoning as their DND exception in the mako config: they answer a key press, and without them a successful shot looks like nothing happened.
 
@@ -144,17 +146,17 @@ Changes from the mako behavior:
 1. **Arrival.** The `NotificationServer.notification(n)` handler sets `n.tracked = true` before anything else. An untracked notification is closed and deleted as soon as the handler returns.
 2. **Reload survivors.** With `keepOnReload: true`, a Quickshell reload re-emits every tracked notification with `n.lastGeneration` set. The handler tracks it again and puts it back without the arrival animation.
 3. **Classification.** `Rules.classify()` returns the kind, timeout, DND visibility, history flag, click actions and color roles.
-4. **DND.** A notification hidden by DND stays tracked, and a 5000 ms timer starts at once, whatever its rule's timeout (a hidden critical with timeout "none" would otherwise never close). It expires silently (`NotificationClosed` reason 1) and goes to history.
-5. **Synchronous tag.** If `hints["x-canonical-private-synchronous"]` matches a tracked notification, the old one is closed with `expire()`. The OSD keeps its surface and animates from the old value to the new one, and the timer restarts. The OSD senders never pass `replaces_id`, so this is the only replacement path they use.
-6. **`replaces_id` updates.** The server updates the existing object and emits no new `notification` signal. Views bind to the properties (`summary`, `body`, `hints`, `urgency`, `image`). The core listens to `expireTimeoutChanged`, `hintsChanged`, `summaryChanged` and `bodyChanged` to restart the timer.
+4. **DND.** A notification hidden by DND stays tracked, and a 5000 ms timer starts at once, whatever its rule's timeout (a hidden critical with timeout "none" would otherwise never close). It expires silently (`NotificationClosed` reason 1) and goes to history. When DND is switched on, the waiting notifications that DND hides take the same path. The one on display stays until it leaves (M1 choice, Q4).
+5. **Synchronous tag.** If `hints["x-canonical-private-synchronous"]` matches a tracked notification, the old one is closed with `expire()`. The OSD keeps its surface and animates from the old value to the new one, and the timer restarts. The OSD senders never pass `replaces_id`, so this is the only replacement path they use. A note with the tag of the note on display takes its place at once, and one with the tag of a waiting note takes its place in the queue, with its queue limit. There is one OSD at a time: an OSD with another tag also expires the visible one (M1 choice, Q5).
+6. **`replaces_id` updates.** The server updates the existing object and emits no new `notification` signal. Views bind to the properties (`summary`, `body`, `hints`, `urgency`, `image`). The core listens to `expireTimeoutChanged`, `hintsChanged`, `summaryChanged`, `bodyChanged` and `urgencyChanged`. It reads the rules again and restarts the time, and the notification stays where it is: one on display starts its timeout again, a waiting one shows later with the new timeout and keeps its queue limit, and one hidden by DND starts its 5000 ms again. A waiting note that turns critical takes the span, and an update never turns a note into an OSD, or an OSD into a note (M1 choice, Q9). A `notify-send -r` update that repeats the same text restarts the time as well (measured: closed 5.0 s after the update, `.test/logs/m1/bus-same-update.log`).
 7. **Queue.** One note is visible at a time:
    - Order: critical notifications first (newest first), then the others in arrival order (oldest first).
    - An OSD draws above the current note. The note's timer pauses and resumes once the OSD leaves.
-   - A critical notification pushes the current note back to the front of the queue with its remaining time. A newer critical also takes the span from an older one, which goes back to the front of the queue. `battery-appindicator` sends 20 %, 5 % and suspend warnings in a row, and the latest one must be the one on screen.
+   - A critical notification pushes the current note back to the front of the queue with its remaining time. The note's 30 s queue limit starts again at that moment (M1 choice, Q6). A newer critical also takes the span from an older one, which goes back to the front of the queue. `battery-appindicator` sends 20 %, 5 % and suspend warnings in a row, and the latest one must be the one on screen.
    - While the target output shows a fullscreen window, notes whose rule does not show over fullscreen stay in the queue (decision D5). The first one appears when the fullscreen window leaves.
    - A notification that has waited 30 s in the queue without being shown expires into history (reason 1). This includes notes held during fullscreen, so most notes that arrive during a film end up in history. Critical notifications are exempt: they stay until clicked (decision D2), so they wait in the queue as long as needed. Blocking senders such as `screenshot.sh` would otherwise wait for as long as the queue lasts.
-8. **Timers.** The server has no expiry timer, so all timers live in QML. Expiry calls `n.expire()` (reason 1). A dismiss click calls `n.dismiss()` (reason 2). An action click calls `action.invoke()`, which emits `ActionInvoked` and then closes with reason 2 unless the notification is `resident`. A sender's `CloseNotification` closes with reason 3, and the views react to the `closed` signal. Every tracked notification must close eventually.
-9. **History.** The last 20 closed notifications whose rule keeps history and that are not `transient`. Entries are plain objects (app, summary, body, urgency, time), not `Notification` objects, kept across reloads in a `property list<var>` of a `PersistentProperties`. A `property var` holding a JS array comes back `undefined` after a reload (spike S8). `restore()` shows the newest entry again as a note without actions.
+8. **Timers.** The server has no expiry timer, so all timers live in QML. Expiry calls `n.expire()` (reason 1). A dismiss click calls `n.dismiss()` (reason 2). An action click calls `action.invoke()`, which emits `ActionInvoked` and then closes with reason 2 unless the notification is `resident`. A sender's `CloseNotification` closes with reason 3, and the views react to the `closed` signal. A `resident` notification keeps its timer after an action and expires as usual. One scheduler `Timer` in `services/Notifs.qml` serves every deadline. QML timers are coarse (Qt allows 5 % error), so it wakes at 90 % of the wait and arms again, and a close lands within about 10 ms of its time. Every tracked notification must close eventually.
+9. **History.** The last 20 closed notifications whose rule keeps history and that are not `transient`. Entries are plain objects (app, summary, body, urgency, time), not `Notification` objects, kept across reloads in a `property list<var>` of a `PersistentProperties`. A `property var` holding a JS array comes back `undefined` after a reload (spike S8). `restore()` takes the newest entry off the list and shows it again as a plain note without actions, for 5000 ms. It queues like any other note and goes back to history when it closes (M1 choice, Q8). It has no D-Bus object, so a reload while it shows loses it.
 10. **State.** `state.json` under `Quickshell.stateDir` stores the DND flag and the last theme mode. With no state file, DND starts off (decision D6).
 
 ## 7. Animation
@@ -200,11 +202,11 @@ Calls use `quickshell ipc -p <config dir> call <target> <function> [args]`. Type
 | `toggleDnd(): bool` | flips DND and returns the new state |
 | `setDnd(on: bool)` | sets DND |
 | `dnd(): bool` | returns the DND state |
-| `dismiss()` | dismisses the current notification |
-| `dismissAll()` | dismisses the current notification and the queue |
-| `restore()` | shows the newest history entry again |
+| `dismiss()` | dismisses the OSD while one shows, else the current notification (M1 choice, Q7) |
+| `dismissAll()` | dismisses the queue, the current notification and the OSD. Notifications hidden by DND are left to their 5 s |
+| `restore()` | shows the newest history entry again (section 6, item 9) |
 | `invoke(action: string)` | invokes the named action on the current notification |
-| `status(): string` | JSON `{dnd, visible, kind, queued, current: {id, app, summary}}`, for tests and scripts |
+| `status(): string` | JSON `{dnd, visible, kind, queued, current: {id, app, summary}}`, for tests and scripts. `current` is the OSD while one shows. The matrix reads more fields: `note`, `osd`, `waiting`, `hidden`, `history`, `tracked` |
 
 `theme` target: `set(mode: string)` with `dark` or `light`, and `mode(): string`.
 
@@ -291,3 +293,9 @@ Notifications:
 | N16 | idle after all cases | screenshot identical to the idle bar before the cases |
 | N17 | fullscreen test client, a plain note, fullscreen off after 10 s; then the same with 35 s | first run: the note appears after the exit. Second run: nothing appears, the note is in history, reason 1 |
 | N18 | two `-u critical -a battery-appindicator` notes 1 s apart, neither clicked, checked after 60 s | both still tracked, the newer one visible with `+1`, and dismissing it shows the older one |
+
+`tests/matrix.sh` has three more cases:
+
+- `SC`: `GetCapabilities` and the `screenshot.sh` contract of section 12 through IPC (`invoke discard` prints `discard`, the 10 s timeout prints nothing).
+- `NX`: paths where a notification could get stuck or lose its place. A `resident` notification after its action, `replaces_id` updates of waiting and hidden notifications, and the order of `dismissAll`.
+- `END`: nothing is left tracked and the overlay is unmapped. It runs last.

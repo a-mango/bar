@@ -247,6 +247,8 @@ Done when:
 - Matrix cases N1, N3, N5, N8, N9, N10, N11, N13, N14 and N18 pass, and the bus log shows the expected `NotificationClosed` reasons at the expected times.
 - The `screenshot.sh` contract passes through IPC: `tests/fake-screenshot.sh` waits in the background, `quickshell ipc ... call notify invoke discard` makes it print `discard`, and a second run that just times out prints nothing and exits.
 
+Status (2026-11-14, branch `m1-notifications`, stacked on `m2-bar`): `make test` passes with 27 tests (`.test/logs/m1/make-test.log`). The whole matrix passes on a fresh session (`.test/logs/m1/matrix.log`): the ten M1 cases, B1 to B6, and the added cases SC (the `screenshot.sh` contract and `GetCapabilities`), NX (resident actions, updates of waiting and hidden notifications, `dismissAll`) and END (nothing left tracked). The `NotificationClosed` reasons and times are in the bus logs of that run, `.test/logs/m1/bus-<case>.log` (read one with `tests/buslog.py <log>`), and the checked values in `.test/logs/m1/closed.log`. The overlay shows the debug view until M3 and M4. Seven spec gaps that M1 filled wait for the owner as Q3 to Q9 in section 8.
+
 ### M2: bar
 
 Tasks:
@@ -552,9 +554,30 @@ No test state reached the real home: `~/.local/state/quickshell`, `~/.cache/quic
 - `qmllint` cannot resolve `import qs.<dir>`. `tests/lint.sh` builds the modules under `.test/lint/` first. Four warnings remain, all from the Quickshell type files (listed in the script).
 - The nested `FloatingWindow` client is tiled by sway like any toplevel. Its title is `bar-test-client`.
 
+### M1 findings
+
+Measured in the nested session on 2026-11-14 (bus logs in `.test/logs/m1/bus-<case>.log`).
+
+- `expireTimeout` arrives in milliseconds, as sent: 800, -1 and 0.
+- `urgency` arrives as an integer: 0 low, 1 normal, 2 critical.
+- `notify-send -i <file>` arrives as `image` with the value `image://icon/<path>`, not as `appIcon`.
+- `GetCapabilities` returns `body`, `body-markup`, `actions` and `icon-static` with `bodySupported`, `bodyMarkupSupported`, `actionsSupported` and `imageSupported` set.
+- `expire()`, `dismiss()` and `invoke()` emit `closed` before they return, and the server deletes the object right after. `services/Notifs.qml` puts its own state in order before it closes anything, and drops its reference in the `closed` handler.
+- QML timers are coarse: Qt allows 5 % error, 250 ms on 5 s. One scheduler timer that wakes at 90 % of the wait and arms again closes within about 10 ms (N1: 5.00 s, N13: 30.00 s).
+- `notify-send -A` calls `CloseNotification` once an action came back. A `resident` notification sent that way closes with reason 3, so case NX sends its resident notification through `gdbus call`.
+- A `notify-send -r` update that repeats the same text restarts the time as well (measured: closed 5.0 s after the update, `.test/logs/m1/bus-same-update.log`).
+- After a reload each survivor gets its full timeout again, and a waiting one a new 30 s limit.
+
 ### Open questions for the owner
 
-These are questions about how bar looks or behaves, so M0 does not settle them.
+These are questions about how bar looks or behaves, so M0 does not settle them. Q3 to Q9 are gaps in the SPEC that M1 had to fill to build the core. Each is built as described and stays that way unless the owner decides otherwise.
 
 - **Q1, text antialiasing.** Answered 2026-11-14 as decision D7 (native rendering). Original question: grayscale text makes the handoff exact (S7) and is what the tree does now. Subpixel text is what waybar draws, and it leaves a handful of pixels off by 1/255 at each handoff, which cannot be seen. The choice is between the SPEC's "pixel for pixel" and the reference's text rendering. If subpixel wins, the handoff check in M4 becomes "largest channel difference 1/255".
 - **Q2, tray menus.** Two points. First, the keyboard: keep the bar at `WlrKeyboardFocus.None` and menus mouse-only, or switch to `OnDemand` while the pointer is on the tray. Second, the look: accept the QtWidgets menu of `QsMenuAnchor`, or draw the menu in QML with `QsMenuOpener` so that it uses `Theme`.
+- **Q3, `value` hint from an unlisted app.** SPEC section 4 names the `value` hint as the OSD trigger, and section 5 lists three OSD apps. Built: the rules table decides, so another app that sends `value` stays a note. The other choice is a full-width OSD for any notification with a `value`.
+- **Q4, DND switched on while notes wait.** Built: the waiting notes that DND hides move to the hidden path (5 s, then history), and the one on display stays until it leaves. The other choices are to hide the visible one too, or to let the waiting ones show.
+- **Q5, a second OSD with another tag.** Built: one OSD at a time. A brightness OSD that arrives while the volume OSD shows expires the volume one and takes the strip.
+- **Q6, queue limit of a note pushed back by a critical.** Built: the note goes back to the front of the queue with its remaining display time and a new 30 s limit. A critical can stay for hours, and without a limit the note would never close. The other choice is to count the 30 s from its arrival, which expires it sooner.
+- **Q7, target of `dismiss()`.** Built: the OSD while one shows, else the note. `$mod+n` during a volume change removes the OSD, and a second press removes the note under it.
+- **Q8, `restore()`.** Built: the newest history entry leaves the list, shows as a plain note for 5 s without its actions, and returns to the list when it closes. Repeated calls bring back older entries one after the other, and they wait in the queue like any note. It also shows while DND is on, since it answers a key press.
+- **Q9, a `replaces_id` update that changes the urgency.** Built: the rules are read again on every update. A note on display that turns critical becomes a critical in place (no timeout, `base08`), and a waiting note that turns critical takes the span like a new critical. An update never moves a notification between the OSD strip and the note span.
