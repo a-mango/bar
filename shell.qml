@@ -1,5 +1,5 @@
 //@ pragma UseQApplication
-//@ pragma Env QSG_DISTANCEFIELD_ANTIALIASING = gray
+//@ pragma NativeTextRendering
 pragma ComponentBehavior: Bound
 
 import QtQuick

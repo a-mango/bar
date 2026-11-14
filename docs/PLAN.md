@@ -260,7 +260,7 @@ Done when:
 - A screenshot of the idle bar next to the `make reference` screenshot shows the same layout, colors and font. The owner has compared the two.
 - Dark and light screenshots exist, switched with `call theme set`.
 
-Status (2026-11-14, branch `m2-bar`): B1 to B6 pass (`.test/logs/m2/matrix.log`). The comparison image is `.test/shots/m2/reference-vs-bar.png` (waybar on top), the theme shots are `.test/shots/m2/theme-dark.png` and `theme-light.png`. The owner's comparison is still owed, together with Q1 and Q2 from section 8.
+Status (2026-11-14, branch `m2-bar`): B1 to B6 pass (`.test/logs/m2/matrix.log`). The comparison image is `.test/shots/m2/reference-vs-bar.png` (waybar on top), the theme shots are `.test/shots/m2/theme-dark.png` and `theme-light.png`. The owner's comparison is still owed, together with Q2 from section 8 (Q1 became decision D7).
 
 ### M3: OSD view
 
@@ -394,6 +394,7 @@ The owner answered these on 2026-11-11. A change to one of them is the owner's c
 | D4 | `$mod+m` | Remove the binding. The bar has no hide function. | M8 |
 | D5 | Notes over fullscreen windows | Hold them in the queue while the target output shows a fullscreen window. OSDs, screenshots and critical notifications still show. The 30 s queue limit applies, so long-held notes go to history. | M5 |
 | D6 | DND at first start | Off. | M1 |
+| D7 | Text rendering (Q1 in section 8) | The best possible rendering: Qt's native (FreeType) renderer, hinted, grayscale antialiasing. Answered 2026-11-14. | M2 |
 
 ## 8. Spike results
 
@@ -409,7 +410,7 @@ Summary:
 | S4 synthetic clicks | pass, with a virtual pointer | harness: `tests/vpointer.py` |
 | S5 no activation on the private bus | pass | none |
 | S6 fullscreen layering | pass | none |
-| S7 handoff | pass with grayscale text only | `shell.qml` pragma, question Q1 |
+| S7 handoff | pass with grayscale text only | `shell.qml` pragma, decision D7 |
 | S8 `PersistentProperties` | fails for `property var`, passes for `list<var>` | SPEC section 6 |
 | S9 tray | pass, keys need `OnDemand` at click time | `shell.qml` pragma, SPEC sections 3 and 8, question Q2 |
 | S10 sway events | pass | none |
@@ -473,7 +474,7 @@ Pass, but only with grayscale text antialiasing. The comparison is exact: `tests
 | `//@ pragma Env QSG_DISTANCEFIELD_ANTIALIASING = gray` | 0 of 9,216,000 pixels differ |
 | `//@ pragma NativeTextRendering` | 0 of 9,216,000 pixels differ (also grayscale) |
 
-The 1/255 differences sit on the colored fringes of the glyphs. They cannot be seen, but they are not "pixel for pixel". `shell.qml` now carries the `QSG_DISTANCEFIELD_ANTIALIASING = gray` pragma, which satisfies the handoff rule as written. The result is the same with `//@ pragma UseQApplication` (needed by S9).
+The 1/255 differences sit on the colored fringes of the glyphs. They cannot be seen, but they are not "pixel for pixel". M0 used the `QSG_DISTANCEFIELD_ANTIALIASING = gray` pragma. After decision D7 (2026-11-14), `shell.qml` uses `//@ pragma NativeTextRendering` instead: hinted glyphs, grayscale, and the handoff is still exact with the M2 clock box (`.test/shots/q1/bar.png` against `overlay.png`: 0 of 9,216,000 pixels differ). The result is the same with `//@ pragma UseQApplication` (needed by S9).
 
 Two observations for M2, from `make reference`:
 
@@ -555,5 +556,5 @@ No test state reached the real home: `~/.local/state/quickshell`, `~/.cache/quic
 
 These are questions about how bar looks or behaves, so M0 does not settle them.
 
-- **Q1, text antialiasing.** Grayscale text makes the handoff exact (S7) and is what the tree does now. Subpixel text is what waybar draws, and it leaves a handful of pixels off by 1/255 at each handoff, which cannot be seen. The choice is between the SPEC's "pixel for pixel" and the reference's text rendering. If subpixel wins, the handoff check in M4 becomes "largest channel difference 1/255".
+- **Q1, text antialiasing.** Answered 2026-11-14 as decision D7 (native rendering). Original question: grayscale text makes the handoff exact (S7) and is what the tree does now. Subpixel text is what waybar draws, and it leaves a handful of pixels off by 1/255 at each handoff, which cannot be seen. The choice is between the SPEC's "pixel for pixel" and the reference's text rendering. If subpixel wins, the handoff check in M4 becomes "largest channel difference 1/255".
 - **Q2, tray menus.** Two points. First, the keyboard: keep the bar at `WlrKeyboardFocus.None` and menus mouse-only, or switch to `OnDemand` while the pointer is on the tray. Second, the look: accept the QtWidgets menu of `QsMenuAnchor`, or draw the menu in QML with `QsMenuOpener` so that it uses `Theme`.
