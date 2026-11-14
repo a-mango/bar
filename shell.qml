@@ -13,13 +13,12 @@ import qs.overlay
 ShellRoot {
     id: root
 
-    // M0 spike state. Everything marked "spike" goes away once the real
-    // views exist (M1 replaces notify.debugShow, M2 the bar content).
+    // Debug state of the overlay until the real views exist (M1 replaces
+    // notify.debugShow, M3 and M4 the overlay content).
     property string overlayMode: "off"
-    property int volatileCounter: 0
 
     // Singletons load on first use: name the ones that must run from startup.
-    readonly property list<QtObject> services: [Notifs, Sway]
+    readonly property list<QtObject> services: [Notifs, Sway, Theme]
 
     Variants {
         id: bars
@@ -38,15 +37,6 @@ ShellRoot {
         }
     }
 
-    // Spike S8: plain objects survive a reload in a `list<var>` property.
-    // A `property var` holding a JS array or object comes back undefined.
-    PersistentProperties {
-        id: persist
-        reloadableId: "spike"
-
-        property list<var> items: []
-    }
-
     IpcHandler {
         target: "notify"
 
@@ -56,26 +46,12 @@ ShellRoot {
         }
     }
 
-    // Spike helpers.
+    // Test helpers for the matrix and the remaining overlay spikes.
     IpcHandler {
         target: "debug"
 
         function overlay(mode: string): void {
             root.overlayMode = mode;
-        }
-
-        // Adds one plain object to the persisted array and bumps a counter
-        // that a reload resets.
-        function push(text: string): void {
-            root.volatileCounter += 1;
-            persist.items = persist.items.concat([{
-                    text: text,
-                    n: persist.items.length + 1
-                }]);
-        }
-
-        function watchFiles(on: bool): void {
-            Quickshell.watchFiles = on;
         }
 
         function trayMenu(index: int, open: bool): void {
@@ -86,28 +62,21 @@ ShellRoot {
                 cell.closeMenu();
         }
 
-        function barFocus(mode: string): void {
-            for (const bar of bars.instances)
-                bar.focusMode = mode;
-        }
-
-        function trayActivate(index: int): void {
-            SystemTray.items.values[index].activate();
-        }
-
         function state(): string {
             return JSON.stringify({
                 overlay: root.overlayMode,
-                volatileCounter: root.volatileCounter,
-                persisted: persist.items,
-                watchFiles: Quickshell.watchFiles,
-                received: Notifs.received,
+                theme: Theme.mode,
                 mode: Sway.mode,
-                events: Sway.events,
+                received: Notifs.received,
                 bars: bars.instances.map(b => ({
                             screen: b.screen.name,
-                            clicks: b.clicks,
-                            focusMode: b.focusMode
+                            workspaces: Sway.workspacesOn(b.screen.name).map(w => w.name),
+                            clock: {
+                                width: b.clock.width,
+                                seconds: b.clock.showSeconds,
+                                calendar: b.clock.calendarShown
+                            },
+                            tray: b.tray.count
                         })),
                 overlays: overlays.instances.map(o => ({
                             screen: o.screen.name,
@@ -116,10 +85,7 @@ ShellRoot {
                         })),
                 tray: SystemTray.items.values.map((item, index) => ({
                             id: item.id,
-                            title: item.title,
                             status: item.status,
-                            hasMenu: item.hasMenu,
-                            onlyMenu: item.onlyMenu,
                             menuOpen: bars.instances[0].tray.cell(index)?.menuOpen ?? false
                         }))
             });

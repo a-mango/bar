@@ -4,11 +4,12 @@ import Quickshell
 // Test client: a normal toplevel that swaymsg can make urgent or
 // fullscreen (matrix cases B2 and B7, spikes S6 and S10).
 // It logs the keys it receives, which shows where the keyboard focus is.
+// CLIENT_TITLE sets the window title, so that scenes can target one client.
 // Run it inside the nested session only:
-//   tests/nested.sh run quickshell -p tests/client
+//   tests/nested.sh run env CLIENT_TITLE=client-1 quickshell -p tests/client
 ShellRoot {
     FloatingWindow {
-        title: "bar-test-client"
+        title: Quickshell.env("CLIENT_TITLE") || "bar-test-client"
         color: "darkmagenta"
         implicitWidth: 640
         implicitHeight: 400

@@ -44,13 +44,14 @@ PanelWindow {
 
         anchors.bottom: parent.bottom
         height: Theme.barHeight
-        x: win.mode === "part" ? Math.round(parent.width / 3) : win.mode === "handoff" ? (parent.width - width) / 2 : 0
-        width: win.mode === "part" ? Math.round(parent.width / 3) : win.mode === "handoff" ? clock.implicitWidth + 16 : parent.width
+        // In handoff mode the box sits exactly where the bar draws its clock.
+        x: win.mode === "part" ? Math.round(parent.width / 3) : win.mode === "handoff" ? Math.round((parent.width - width) / 2) : 0
+        width: win.mode === "part" ? Math.round(parent.width / 3) : win.mode === "handoff" ? clock.implicitWidth : parent.width
         color: win.mode === "handoff" ? Theme.base00 : Theme.base0D
 
         Clock {
             id: clock
-            anchors.centerIn: parent
+            interactive: false
             visible: win.mode === "handoff"
         }
 
