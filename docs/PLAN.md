@@ -132,6 +132,7 @@ bar/
     scene.sh              puts a nested session into a known state (workspaces, mode, tray)
     vpointer.py           virtual pointer, so that seat cursor commands reach clients
     pixel.py, rows.py, pixdiff.py   screenshot checks in logical px
+    frames.py             frame series: commands and region shots on a schedule (M3)
     lint.sh               qmllint with the qs.* modules resolved
     bin/darkman           darkman stand-in on the nested PATH
     fake-sni.py           fake tray item with a menu (python3-dbus-next)
@@ -173,7 +174,8 @@ Using the session:
 - `tests/nested.sh run <command>` runs a command inside the session under `env -i`, so nothing from the live session leaks in. It is the safe way to run `notify-send`, `grim -o HEADLESS-1`, `quickshell ipc -p $REPO call ...`, `tests/fake-sni.py` and the test client. `source .test/env` also works in a shell that is used for nothing else.
 - Clicks: `tests/nested.sh click <x> <y> [button]` in logical coordinates. It runs `swaymsg seat seat0 cursor set <x> <y>`, then `cursor press` and `cursor release`. These only reach clients because `tests/vpointer.py` gives the headless seat a pointer (spike S4).
 - Keys: `tests/nested.sh run wtype -k <key>`. For a test that depends on keyboard focus, hold a keyboard on the seat first with `wtype -s 3600000` in the background.
-- Image checks: `tests/rows.py` summarizes the rows of a screenshot, `tests/pixdiff.py` compares two screenshots exactly.
+- Image checks: `tests/rows.py` summarizes the rows of a screenshot, `tests/pixdiff.py` compares two screenshots exactly, `tests/pixel.py` reads colors, runs and color counts in logical px.
+- Frame series: `tests/nested.sh run tests/frames.py <dir> "<ms> run <command>" "<ms> shot" ...` starts commands and screenshots of a region (default: the overlay window) on a schedule. Each shot carries the time of the frame it shows, from the compositor's `ready` event. It does not use grim, whose full-output readback slows the compositor down (M3 findings in section 8). It writes `t<ms>.png`, `frames.json` and a contact sheet `sheet.png`.
 - Outputs: `swaymsg create_output` and `output HEADLESS-2 unplug` simulate a dock.
 - Test client: `quickshell -p $REPO/tests/client` opens a `FloatingWindow`. `swaymsg` makes it urgent or fullscreen.
 - Tray: `tests/fake-sni.py` registers a fake item with a menu and logs every call to `.test/logs/fake-sni.log`.
@@ -274,6 +276,8 @@ Done when:
 - Rapid presses never show a second surface or replay the entry animation.
 - Case B7 passes for the OSD part.
 - The owner has looked at the frames.
+
+Status (2026-11-14, branch `m3-osd`): the whole matrix passes on a fresh session, 22 cases in 5 min 4 s (`.test/logs/m3/matrix.log`). N5 keeps every M1 check and adds a frame series (0, 60, 120, 300 and 900 ms, shown frames at 2, 62, 127, 306 and 901 ms), one overlay map, one entry and four updates. N6 adds the brightness and microphone series at value 0, palette sheets in both themes and a click that dismisses the OSD (reason 2). B7 passes for the OSD over a fullscreen client. The new case RP covers rapid presses: 30 presses 40 ms apart, a press during the fade-out and a reload, each with one map and no second entry. The frames are in `.test/shots/m3/`: `N5-volume-frames.png`, `N6-brightness-frames.png`, `N6-microphone-frames.png`, `N6-palette-dark.png`, `N6-palette-light.png`, `RP-fade-frames.png`, `RP-repeat-frames.png` and `B7-osd-fullscreen.png`. Their `frames.json` files and the N5 and N6 bus logs are in `.test/logs/m3/`. `make test` passes 27 tests, and `make lint` shows the same 9 warnings as `main`, all from the Quickshell type files. The owner's look at the frames is still owed, together with Q10 to Q12 from section 8.
 
 ### M4: note view
 
@@ -568,9 +572,22 @@ Measured in the nested session on 2026-11-14 (bus logs in `.test/logs/m1/bus-<ca
 - A `notify-send -r` update that repeats the same text restarts the time as well (measured: closed 5.0 s after the update, `.test/logs/m1/bus-same-update.log`).
 - After a reload each survivor gets its full timeout again, and a waiting one a new 30 s limit.
 
+### M3 findings
+
+Measured in the nested session on 2026-11-14 (logs in `.test/logs/m3/`, frames in `.test/shots/m3/`).
+
+- **Frame series need a light capture.** grim 1.5 uses ext-image-copy-capture and reads back the whole 3840x2400 output for every shot, even with `-g`. Each shot blocks the compositor for about 80 ms. Shots requested at 60 and 120 ms showed the frames of 114 and 193 ms, and notifications sent at 100, 200 and 300 ms got their reply only at 398 ms, because Quickshell was waiting for the compositor. `tests/frames.py` uses wlr-screencopy's `capture_output_region` on one connection instead. It copies only the region, the frames land within one 60 Hz frame of the requested time, and the senders get their reply in about 22 ms. Dense series still cost frames: 31 shots 10 ms apart got only 7 distinct compositor frames, and the fade ran slower. Five shots do not change the result: one shot at 120 ms and three shots at 0, 60 and 120 ms both show opacity 0.49 at about 125 ms.
+- **Frame time.** The `ready` event of wlr-screencopy (and `presentation_time` in ext-image-copy-capture) carries the time of the copied output frame in `CLOCK_MONOTONIC`. Checked against the client's own clock, it lies within 0.2 ms of the capture request.
+- **First frame of the overlay.** The overlay's first frame comes about 30 ms after the OSD reaches the view (layer surface, configure, first render). Animations started on arrival ticked irregularly while the surface was set up: the first visible frame came between 35 and 71 ms, at opacity 0.33, and the 100 ms fade stretched to about 150 ms. `OsdView` therefore starts the entry on the window's first `frameSwapped`. Qt's first tick after `start()` only registers an animation, so the visible fade starts at opacity 0.33 about 65 ms after the arrival. It then moves in 16.7 ms steps and ends 100 ms after the first frame. Seen from the sender, the strip appears at about 80 ms and is opaque at about 150 ms. The probe output is in `.test/logs/m3/first-frame.log`. M4's note entry starts from the same first frame.
+- **Fade-out after the entry is gone.** The core sets `Notifs.osd` to null when the OSD closes, so the view keeps its own copy of the label, the value and the color roles, and `active` keeps the overlay mapped until the 150 ms fade ends. During the fade the input mask is empty (`Region { item: null }`). Checked with the fade stretched to 3 s: a click on workspace 3 under the fading strip focused workspace 3.
+- **Rapid presses.** The core sets the new OSD before it closes the old one, so `Notifs.osd` is never null between presses. In case RP, 30 presses 40 ms apart give one map, one entry and 29 updates, and every frame from 300 to 1400 ms shows an opaque fill past 50 %. A press during the fade-out fades the same strip back in. Its frames show opacity 0.90 at 357 ms and 0.67 at 407 ms, then an opaque strip at 456 ms, with one map and one entry for both presses.
+- **The window of an item.** `PanelWindow` does not expose `_backingWindow` to QML (it reads as `undefined`). The attached property `Window.window` of an item gives the `QQuickWindow`, with `frameSwapped`, `afterAnimating` and `beforeSynchronizing`.
+- **Hot reload of a singleton.** After an edit to `services/Motion.qml` alone, Quickshell logged a reload but kept the old value of `osdFadeOut`: 150 after the change to 3000, and 3000 after the change back. Touching `shell.qml` applied the new value. This happened both times.
+- **Label contrast.** WCAG contrast ratios from the two palettes: base05 on base00 is 12.5:1 in dark mode and 11.0:1 in light mode. base00 on the fills is 7.4 (volume), 11.6 (brightness) and 6.3 (microphone) in dark mode, but 2.3, 1.4 and 2.7 in light mode, where base00 is `#f8f8f8`. base05 on the light fills would give 4.9, 7.7 and 4.1. See Q10 and `.test/shots/m3/N6-palette-light.png`.
+
 ### Open questions for the owner
 
-These are questions about how bar looks or behaves, so M0 does not settle them. Q3 to Q9 are gaps in the SPEC that M1 had to fill to build the core. Each is built as described and stays that way unless the owner decides otherwise.
+These are questions about how bar looks or behaves, so M0 does not settle them. Q3 to Q9 are gaps in the SPEC that M1 had to fill to build the core, and Q10 to Q12 are the same for the OSD view (M3). Each is built as described and stays that way unless the owner decides otherwise.
 
 - **Q1, text antialiasing.** Answered 2026-11-14 as decision D7 (native rendering). Original question: grayscale text makes the handoff exact (S7) and is what the tree does now. Subpixel text is what waybar draws, and it leaves a handful of pixels off by 1/255 at each handoff, which cannot be seen. The choice is between the SPEC's "pixel for pixel" and the reference's text rendering. If subpixel wins, the handoff check in M4 becomes "largest channel difference 1/255".
 - **Q2, tray menus.** Two points. First, the keyboard: keep the bar at `WlrKeyboardFocus.None` and menus mouse-only, or switch to `OnDemand` while the pointer is on the tray. Second, the look: accept the QtWidgets menu of `QsMenuAnchor`, or draw the menu in QML with `QsMenuOpener` so that it uses `Theme`.
@@ -581,3 +598,6 @@ These are questions about how bar looks or behaves, so M0 does not settle them. 
 - **Q7, target of `dismiss()`.** Built: the OSD while one shows, else the note. `$mod+n` during a volume change removes the OSD, and a second press removes the note under it.
 - **Q8, `restore()`.** Built: the newest history entry leaves the list, shows as a plain note for 5 s without its actions, and returns to the list when it closes. Repeated calls bring back older entries one after the other, and they wait in the queue like any note. It also shows while DND is on, since it answers a key press.
 - **Q9, a `replaces_id` update that changes the urgency.** Built: the rules are read again on every update. A note on display that turns critical becomes a critical in place (no timeout, `base08`), and a waiting note that turns critical takes the span like a new critical. An update never moves a notification between the OSD strip and the note span.
+- **Q10, label over the fill in light mode.** Built as SPEC section 7 says: base00 over the fill, base05 over the empty part. In light mode base00 is `#f8f8f8`, which gives 1.4:1 on the brightness fill (`#f7ca88`), 2.3:1 on volume (`#7cafc2`) and 2.7:1 on microphone (`#ba8baf`). The label is hard to read at high values (`.test/shots/m3/N6-palette-light.png`). mako drew its light-mode OSD text in `#383838`. The choices: keep it; use base05 (dark in light mode) over the fill in light mode, which gives 7.7, 4.9 and 4.1 but the same color on both sides of the edge; or pick another palette role for the text over the fill.
+- **Q11, an OSD of another app takes the strip (Q5).** Built: the strip stays, its fill color changes at once, and the fill moves from the old value to the new one in 120 ms, as for a same-tag update. The other choice is to run the entry again (the fill grows from 0 in 180 ms) without fading the strip.
+- **Q12, position of the OSD label.** Built: centered on the output, where the clock is, in the regular bar font. Near 50 % the fill edge runs through the label, which is where the split shows (`.test/shots/m3/N5-volume-frames.png`, last frame). mako aligned its text to the left.
