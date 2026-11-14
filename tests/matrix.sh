@@ -305,7 +305,8 @@ case_N5() {
     check "OSD value" "$(py "d['notifs']['osd']['value']")" 50 || f=1
     check "OSD id (the last one)" "$(py "d['notifs']['osd']['id']")" "${ids[4]}" || f=1
     check "nothing queued, no note" "$(py "(d['notifs']['queued'], d['notifs']['note'])")" "(0, None)" || f=1
-    check "one overlay mapped" "$(py "sum(1 for o in d['overlays'] if o['visible'])")" 1 || f=1
+    # The M1 debug view maps on every output. M6 picks the focused one.
+    check "overlay mapped on HEADLESS-1" "$(py "[o['visible'] for o in d['overlays'] if o['screen'] == 'HEADLESS-1']")" "[True]" || f=1
     sleep 1.2
     bus_stop
     for v in 0 1 2 3; do
