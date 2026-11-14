@@ -58,7 +58,7 @@ Handoff rule: while a note is visible, the overlay draws its own compact clock a
 
 Font: `IosevkaTerm Nerd Font` at 15 px, as in waybar's `style.css`. Every bar text adds 0.5 px letter spacing: Pango (waybar) rounds the font's 7.5 px advance to 8 px, Qt does not.
 
-Text antialiasing: grayscale, set for the whole process with `//@ pragma Env QSG_DISTANCEFIELD_ANTIALIASING = gray` in `shell.qml`. Spike S7 showed that the handoff is exact only with grayscale text: with Qt's default subpixel antialiasing, 9 to 18 pixels differ by 1/255 between the two windows. waybar draws subpixel text, so this is open as question Q1 in `PLAN.md` section 8.
+Text rendering: Qt's native (FreeType) renderer, set for the whole process with `//@ pragma NativeTextRendering` in `shell.qml` (decision D7). It hints glyphs like waybar's Pango, draws them with grayscale antialiasing, and keeps the handoff pixel-exact (spike S7: 0 differing pixels). Qt's default distance-field renderer uses subpixel antialiasing, which leaves pixels off by 1/255 between the two windows.
 
 ## 3. Bar
 
