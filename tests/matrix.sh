@@ -6,7 +6,8 @@
 #
 # Each case is a shell function named case_<ID>. It saves screenshots to
 # .test/shots/<ID>/ and returns non-zero on failure. M2 added B1 to B6,
-# M1 adds the N cases, NX (paths outside the SPEC matrix), SC and END. The B cases set up tests/scene.sh once per session.
+# M1 adds the N cases, NX (paths outside the SPEC matrix), SC and END.
+# The B cases set up tests/scene.sh once per session.
 set -euo pipefail
 REPO=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
 T=$REPO/.test
