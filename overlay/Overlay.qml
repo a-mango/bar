@@ -8,9 +8,9 @@ import qs.bar
 // It is mapped only while it has something to show, and its input mask
 // covers only what it draws.
 //
-// M1 version: a debug view of the notification core, plain text without
-// animation. An OSD fills the bar's width, a note the middle half. M3 and
-// M4 replace it with OsdView and NoteView.
+// Notes, criticals and (until M5) rich notifications show in NoteView (M4).
+// The OSD is still the M1 debug view, plain text over the bar's width,
+// until M3 replaces it with OsdView.
 //
 // `mode` keeps the M0 spike content for tests: "strip" (base0D over the
 // whole bar), "part" (the middle third), "handoff" (the idle clock box).
@@ -20,13 +20,27 @@ PanelWindow {
 
     required property ShellScreen modelData
     property string mode: "off"
+    // The bar of the same output (set in shell.qml): NoteView places the
+    // center span from its clock, left section and tray.
+    property var bar: null
+    // Debug: hold the note view at its first and last frame.
+    property bool noteHold: false
 
     readonly property var osd: Notifs.osd
-    readonly property var note: Notifs.current
-    readonly property bool showing: mode !== "off" || osd !== null || note !== null
+    // From the first frame of a note's entry to the last frame of its leave.
+    readonly property bool noteOpen: noteView.active
+    readonly property bool showing: mode !== "off" || osd !== null || noteView.active
 
     // Spike S3/S4: clicks received by the drawn content.
     property int clicks: 0
+
+    // Test helpers (debug target in shell.qml).
+    function noteState(): var {
+        return noteView.debugState();
+    }
+    function releaseNote(): void {
+        noteView.release();
+    }
 
     function text(e: var): string {
         if (!e)
@@ -54,39 +68,23 @@ PanelWindow {
     color: "transparent"
     visible: showing
     mask: Region {
-        item: win.mode !== "off" ? spike : win.osd ? osdStrip : noteSpan
+        item: win.mode !== "off" ? spike : win.osd ? osdStrip : noteView.hitArea
     }
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "bar-overlay"
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
-    // ---- notifications (M1 debug view) ----
+    // ---- notifications ----
 
-    Rectangle {
-        id: noteSpan
-        visible: win.mode === "off" && win.note !== null
+    NoteView {
+        id: noteView
+        visible: win.mode === "off"
+        anchors.left: parent.left
+        anchors.right: parent.right
         anchors.bottom: parent.bottom
-        x: Math.round(parent.width / 4)
-        width: Math.round(parent.width / 2)
-        height: Theme.barHeight
-        color: win.note ? Theme[win.note.cls.background] : "transparent"
-
-        BarText {
-            x: 8
-            width: parent.width - 16 - (queued.visible ? queued.width + 8 : 0)
-            elide: Text.ElideRight
-            text: win.text(win.note)
-            color: win.note && win.note.cls.kind === "critical" ? Theme.base07 : Theme.base05
-        }
-        BarText {
-            id: queued
-            anchors.right: parent.right
-            anchors.rightMargin: 8
-            visible: Notifs.queued > 0
-            text: "+" + Notifs.queued
-            color: Theme.base04
-        }
+        bar: win.bar
+        hold: win.noteHold
     }
 
     Rectangle {
@@ -125,7 +123,7 @@ PanelWindow {
     }
 
     MouseArea {
-        parent: win.mode !== "off" ? spike : win.osd ? osdStrip : noteSpan
+        parent: win.mode !== "off" ? spike : win.osd ? osdStrip : noteView.hitArea
         anchors.fill: parent
         onClicked: {
             win.clicks += 1;
