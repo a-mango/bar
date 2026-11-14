@@ -79,19 +79,22 @@ Singleton {
         }
 
         const old = e.tag ? findTag(e.tag) : null;
+        const critical = e.cls.kind === "critical";
         if (e.cls.kind === "osd") {
             showOsd(e, old);
-        } else if (old && old === current) {
+        } else if (old && old === current && (critical || old.cls.kind !== "critical")) {
             // Same synchronous tag as the note on display: take its place.
-            current = e;
             e.replaced = true;
-            run(e);
+            show(e);
             close(old, "expire");
-        } else if (old && queue.includes(old)) {
+        } else if (old && queue.includes(old) && !critical && old.cls.kind !== "critical") {
+            // Same tag as a waiting note: take its place and its queue limit.
             e.waitUntil = old.waitUntil;
             queue = queue.map(q => q === old ? e : q);
             close(old, "expire");
         } else {
+            // Everything else goes the normal way, so that a critical takes
+            // the span and a note never inherits a critical's unlimited wait.
             if (old)
                 close(old, "expire");
             enqueue(e);
