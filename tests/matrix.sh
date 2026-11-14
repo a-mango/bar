@@ -6,8 +6,10 @@
 #
 # Each case is a shell function named case_<ID>. It saves screenshots to
 # .test/shots/<ID>/ and returns non-zero on failure. M2 added B1 to B6,
-# M1 adds the N cases, NX (paths outside the SPEC matrix), SC and END.
-# The B cases set up tests/scene.sh once per session.
+# M1 the N cases, NX (paths outside the SPEC matrix), SC and END. M3 adds
+# the OSD frame series (N5, N6, tests/frames.py), B7 for the OSD and RP
+# (rapid presses). The B cases and the OSD cases set up tests/scene.sh
+# once per session.
 set -euo pipefail
 REPO=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
 T=$REPO/.test
@@ -199,6 +201,30 @@ case_B6() {
     check "wait-sni-ready (the script exits 0 on failure too)" "$(grep -c 'Successfully waited for org.kde.StatusNotifierHost' <<< "$out")" 1
 }
 
+# The OSD part of B7 (M3): a fullscreen client covers the bar, a volume OSD
+# draws above it. The screenshot note and the held plain note come with M5
+# (decision D5).
+case_B7() {
+    local f=0 s client="#8b008b" # the test client's darkmagenta
+    prepare
+    reset_notifs
+    n swaymsg -q '[title="client-2"] fullscreen enable'
+    sleep 0.5
+    s=$(shot B7 fullscreen)
+    check "bar covered by the fullscreen client" "$(px "$s" color 39 $TOP)" "$client" || f=1
+    send -a volume -t 3000 -e -h int:value:60 -h string:x-canonical-private-synchronous:volume "Volume: 60%" > /dev/null
+    sleep 0.5
+    s=$(shot B7 osd)
+    check "OSD fill above the client" "$(px "$s" color 2 $TOP)" "$(palette base0D)" || f=1
+    check "OSD fill at 60 % of 1920 px" "$(px "$s" run 2 $TOP)" "0 1152" || f=1
+    check "OSD empty part above the client" "$(px "$s" color 1900 $TOP)" "$(palette base00)" || f=1
+    more "OSD label above the client (base00 over the fill)" "$(px "$s" count "$(palette base00)" 900 1177 1020 1199)" 50 || f=1
+    check "client still shown above the bar rows" "$(px "$s" color 960 1170)" "$client" || f=1
+    n swaymsg -q '[title="client-2"] fullscreen disable'
+    reset_notifs
+    return $f
+}
+
 # ---- notifications (M1) ----------------------------------------------
 
 # Bus log of the case: every Notify, CloseNotification, NotificationClosed
@@ -229,15 +255,16 @@ within() {
 notif() { ipc notify status | python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 send() { n notify-send -p "$@"; }
 overlay_mapped() { state "d['overlays'][0]['visible']"; }
-# Every case starts and ends with nothing on display and DND off.
+# Every case starts and ends with nothing on display and DND off. The
+# overlays unmap only once their fade-out has ended.
 reset_notifs() {
     ipc notify dismissAll
     ipc notify setDnd false
     for _ in $(seq 70); do
-        [ "$(notif "d['tracked']")" = 0 ] && return 0
+        [ "$(notif "d['tracked']")" = 0 ] && [ "$(state "any(o['visible'] for o in d['overlays'])")" = False ] && return 0
         sleep 0.1
     done
-    echo "  note: $(notif "d['tracked']") notification(s) still tracked after the reset"
+    echo "  note: $(notif "d['tracked']") notification(s) still tracked or an overlay still mapped after the reset"
 }
 # closed_check <what> <id> <summary> <reason> <seconds> [tolerance]
 closed_check() {
@@ -288,31 +315,161 @@ case_N3() {
     return $f
 }
 
+# ---- OSD frame series (M3) --------------------------------------------
+
+# frames <dir> <event>...: a frame series (tests/frames.py) into
+# .test/shots/<dir>/. Events: "<ms> shot", "<ms> run <command>".
+frames() {
+    local dir=$T/shots/$1
+    shift
+    rm -rf "$dir"
+    n "$REPO/tests/frames.py" "$dir" "$@" > /dev/null
+    FJ=$dir/frames.json
+    FD=$dir
+}
+# fj <expression>: a field of the last frames.json (`d`).
+fj() { python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print($1)" "$FJ"; }
+# fstate <expression>: a field of the `debug state` run in the last series (`d`).
+fstate() {
+    python3 -c "import json,sys; d=json.loads([r for r in json.load(open(sys.argv[1]))['runs'] if 'debug state' in r['cmd']][0]['stdout']); print($1)" "$FJ"
+}
+# The overlay of HEADLESS-1 in a state `d`. Until M6 the overlay maps on
+# every output, so surfaces and entries are counted on HEADLESS-1 only.
+H1="[o for o in d['overlays'] if o['screen'] == 'HEADLESS-1'][0]"
+# "<maps> <entries> <updates>" of the HEADLESS-1 overlay and its OSD view.
+osd_counts() { state "(lambda o: '%d %d %d' % (o['maps'], o['osd']['entries'], o['osd']['updates']))($H1)"; }
+# counts_check <what> <before> <after> <maps> <entries> <updates>: deltas.
+counts_check() {
+    local m0 e0 u0 m1 e1 u1 f=0
+    read -r m0 e0 u0 <<< "$2"
+    read -r m1 e1 u1 <<< "$3"
+    check "$1: overlay maps (one layer surface each)" $((m1 - m0)) "$4" || f=1
+    check "$1: entry animations" $((e1 - e0)) "$5" || f=1
+    check "$1: updates of the same strip" $((u1 - u0)) "$6" || f=1
+    return $f
+}
+# osd_cmd <app> <value> [timeout] [summary]: an OSD sender's notify-send, as
+# ~/bin/volume-helper sends it (transient, synchronous tag = app name).
+osd_cmd() {
+    echo "notify-send -p -a $1 -t ${3:-800} -e -h int:value:$2 -h string:x-canonical-private-synchronous:$1 '${4:-${1^}: $2%}'"
+}
+# Rows in a frame of the default region (the overlay window, y 1104 to
+# 1200): CTOP is TOP, the bar's text box spans 73 to 95.
+CTOP=72.5
+mapped_h1() { state "$H1['visible']"; }
+wait_unmapped() {
+    for _ in $(seq 30); do
+        [ "$(mapped_h1)" = False ] && return 0
+        sleep 0.1
+    done
+    return 1
+}
+# frame_times: "<requested> -> <frame time>" for every shot of the last series.
+frame_times() { fj "', '.join('%d -> %.1f' % (s['at'], s['frame_ms']) for s in d['shots'])"; }
+
 case_N5() {
-    local f=0 v ids=()
+    local f=0 v ev=() ids=() c0 c1 x300 x900
+    prepare
     reset_notifs
+    c0=$(osd_counts)
     bus_start N5
     for v in 10 20 30 40 50; do
-        ids+=("$(send -a volume -t 800 -e -h int:value:$v -h string:x-canonical-private-synchronous:volume "Volume: $v%")")
-        [ "$v" = 50 ] || sleep 0.1
+        ev+=("$(((v / 10 - 1) * 100)) run $(osd_cmd volume $v)")
     done
-    # The last OSD lives 800 ms: read everything at once, right away.
-    local st
-    st=$(ipc debug state)
-    py() { python3 -c "import json,sys; d=json.loads(sys.argv[1]); print($1)" "$st"; }
-    shot N5 osd > /dev/null
-    check "kind on display" "$(py "d['notifs']['kind']")" osd || f=1
-    check "OSD value" "$(py "d['notifs']['osd']['value']")" 50 || f=1
-    check "OSD id (the last one)" "$(py "d['notifs']['osd']['id']")" "${ids[4]}" || f=1
-    check "nothing queued, no note" "$(py "(d['notifs']['queued'], d['notifs']['note'])")" "(0, None)" || f=1
-    # The M1 debug view maps on every output. M6 picks the focused one.
-    check "overlay mapped on HEADLESS-1" "$(py "[o['visible'] for o in d['overlays'] if o['screen'] == 'HEADLESS-1']")" "[True]" || f=1
-    sleep 1.2
+    # The last OSD lives 800 ms from about 420 ms: the state at 500 ms.
+    frames N5 "${ev[@]}" "0 shot" "60 shot" "120 shot" "300 shot" "900 shot" \
+        "500 run quickshell ipc -p $REPO call debug state"
+    mapfile -t ids < <(fj "'\n'.join(r['stdout'] for r in d['runs'] if r['cmd'].startswith('notify-send'))")
+    echo "  frames (requested -> frame time, ms): $(frame_times); $FD/sheet.png"
+    check "kind on display" "$(fstate "d['notifs']['kind']")" osd || f=1
+    check "OSD value" "$(fstate "d['notifs']['osd']['value']")" 50 || f=1
+    check "OSD id (the last one)" "$(fstate "d['notifs']['osd']['id']")" "${ids[4]}" || f=1
+    check "nothing queued, no note" "$(fstate "(d['notifs']['queued'], d['notifs']['note'])")" "(0, None)" || f=1
+    check "overlay mapped on HEADLESS-1" "$(fstate "$H1['visible']")" True || f=1
+    check "0 ms: idle bar (focused workspace button, no strip)" "$(px "$FD/t0000.png" color 39 $CTOP)" "$(palette base07)" || f=1
+    if [ "$(px "$FD/t0060.png" color 2 $CTOP)" != "$(palette base0D)" ]; then
+        echo "  ok    60 ms: entry not finished (no opaque fill yet)"
+    else
+        echo "  FAIL  60 ms: the strip is already opaque"
+        f=1
+    fi
+    check "300 ms: opaque fill" "$(px "$FD/t0300.png" color 2 $CTOP)" "$(palette base0D)" || f=1
+    x300=$(px "$FD/t0300.png" run 2 $CTOP | cut -d' ' -f2)
+    x900=$(px "$FD/t0900.png" run 2 $CTOP | cut -d' ' -f2)
+    if python3 -c 'import sys; a, b = map(float, sys.argv[1:]); sys.exit(0 if 0 < a <= b else 1)' "$x300" "$x900"; then
+        echo "  ok    fill grows through the values: $x300 px at 300 ms, $x900 px at 900 ms"
+    else
+        echo "  FAIL  fill does not grow: $x300 px at 300 ms, $x900 px at 900 ms"
+        f=1
+    fi
+    check "900 ms: fill at 50 % of 1920 px" "$x900" 960 || f=1
+    check "900 ms: empty part" "$(px "$FD/t0900.png" color 1900 $CTOP)" "$(palette base00)" || f=1
+    more "900 ms: label over the fill, in base00" "$(px "$FD/t0900.png" count "$(palette base00)" 900 73 960 95)" 50 || f=1
+    more "900 ms: label over the empty part, in base05" "$(px "$FD/t0900.png" count "$(palette base05)" 960 73 1020 95)" 50 || f=1
+    check "900 ms: no base05 over the fill" "$(px "$FD/t0900.png" count "$(palette base05)" 900 73 960 95)" 0 || f=1
+    sleep 0.6
     bus_stop
     for v in 0 1 2 3; do
         closed_check "OSD $((v + 1)) replaced by the next" "${ids[$v]}" "Volume: $((v * 10 + 20))%" 1 0.0 0.2 || f=1
     done
     closed_check "last OSD (sender timeout 800 ms)" "${ids[4]}" "Volume: 50%" 1 0.8 || f=1
+    wait_unmapped || true
+    check "overlay unmapped after the fade-out" "$(mapped_h1)" False || f=1
+    c1=$(osd_counts)
+    counts_check "five presses" "$c0" "$c1" 1 1 4 || f=1
+    reset_notifs
+    return $f
+}
+
+# Brightness and microphone at value 0: the label stays readable over the
+# empty strip. Then the same and full fills in both themes (palette sheets
+# for the owner), and a click on the strip.
+case_N6() {
+    local f=0 app summary s mode c0 c1 id
+    prepare
+    for app in brightness microphone; do
+        reset_notifs
+        summary="${app^}: 0%"
+        [ "$app" = microphone ] && summary="Microphone: muted"
+        c0=$(osd_counts)
+        frames "N6/$app" "0 run $(osd_cmd "$app" 0 800 "$summary")" "0 shot" "60 shot" "120 shot" "300 shot" "900 shot"
+        echo "  $app frames (requested -> frame time, ms): $(frame_times); $FD/sheet.png"
+        s=$FD/t0300.png
+        check "$app: strip over the bar (focused workspace button covered)" "$(px "$s" color 39 $CTOP)" "$(palette base00)" || f=1
+        check "$app: no fill at value 0 (one color over the whole row)" "$(px "$s" run 2 $CTOP)" "0 1920" || f=1
+        more "$app: label pixels in base05" "$(px "$s" count "$(palette base05)" 860 73 1060 95)" 150 || f=1
+        check "$app: clock hidden under the strip (no base07)" "$(px "$s" count "$(palette base07)" 860 73 1060 95)" 0 || f=1
+        wait_unmapped || true
+        c1=$(osd_counts)
+        counts_check "$app" "$c0" "$c1" 1 1 0 || f=1
+    done
+
+    # Palette sheets: value 0 and 100 per app, dark then light.
+    for mode in dark light; do
+        reset_notifs
+        ipc theme set "$mode"
+        sleep 0.3
+        frames "N6/palette-$mode" "0 run $(osd_cmd brightness 0 5000)" "300 shot" \
+            "400 run $(osd_cmd brightness 100 5000)" "700 shot" \
+            "800 run $(osd_cmd microphone 0 5000 "Microphone: muted")" "1100 shot" \
+            "1200 run $(osd_cmd microphone 100 5000 "Microphone: on")" "1500 shot" \
+            "1600 run $(osd_cmd volume 0 5000)" "1900 shot" \
+            "2000 run $(osd_cmd volume 100 5000)" "2300 shot"
+        echo "  palette ($mode): $FD/sheet.png"
+    done
+    reset_notifs
+    ipc theme set dark
+    sleep 0.3
+
+    # A click on the strip dismisses it (reason 2) and stays out of the bar.
+    bus_start N6
+    id=$(send -a brightness -t 5000 -e -h int:value:40 -h string:x-canonical-private-synchronous:brightness "Brightness: 40%")
+    sleep 0.4
+    click 960 $MID
+    sleep 0.3
+    bus_stop
+    check "click on the OSD: NotificationClosed reason" "$(closed "$id" "Brightness: 40%" | cut -d' ' -f1)" 2 || f=1
+    check "the click did not reach the clock below" "$(state "$(bar1)['clock']['seconds']")" False || f=1
     reset_notifs
     return $f
 }
@@ -526,6 +683,61 @@ case_NX() {
     order=$(grep '^closed' <<< "$log" | grep -E "id=($x|$y|$z) " | sed 's/.*id=\([0-9]*\) reason=\([0-9]\)/\1:\2/' | tr '\n' ' ')
     check "dismissAll order and reasons" "$order" "$y:2 $z:2 $x:2 " || f=1
     closed_check "hidden critical, from its update" "$h" "Hidden critical, updated" 1 5.0 || f=1
+    reset_notifs
+    return $f
+}
+
+# Rapid presses (docs/PLAN.md M3): never a second surface, never a second
+# entry animation. Three paths: key repeat on a volume key (a press every
+# 40 ms for 1.2 s), a press during the fade-out, and a reload while an OSD
+# shows. The counters come from the views; the frames back them with pixels.
+case_RP() {
+    local f=0 ev=() i t c0 c1 bad=0 total=0 file
+    prepare
+    reset_notifs
+    c0=$(osd_counts)
+    for i in $(seq 0 29); do
+        ev+=("$((i * 40)) run $(osd_cmd volume $((60 + i % 4 * 5)))")
+    done
+    for t in $(seq 300 50 1400); do ev+=("$t shot"); done
+    frames RP/repeat --region "0,1176 1920x24" "${ev[@]}"
+    echo "  frames: $FD/sheet.png"
+    for file in "$FD"/t*.png; do
+        total=$((total + 1))
+        # Every value is at least 60 %: x 2 and x 960 are on an opaque fill.
+        [ "$(px "$file" color 2 0.5)$(px "$file" color 960 0.5)" = "$(palette base0D)$(palette base0D)" ] || {
+            bad=$((bad + 1))
+            echo "  frame $(basename "$file"): $(px "$file" color 2 0.5) at x 2, $(px "$file" color 960 0.5) at x 960"
+        }
+    done
+    check "key repeat: frames from 300 to 1400 ms with an opaque fill past 50 % (of $total)" "$((total - bad))" "$total" || f=1
+    sleep 1.2
+    wait_unmapped || true
+    c1=$(osd_counts)
+    counts_check "key repeat, 30 presses" "$c0" "$c1" 1 1 29 || f=1
+
+    # The first OSD closes at about 320 ms and fades out until about 470 ms.
+    # The second arrives at about 380 ms, during the fade.
+    reset_notifs
+    c0=$(osd_counts)
+    frames RP/fade "0 run $(osd_cmd volume 40 300)" "360 run $(osd_cmd volume 70 800)" \
+        "280 shot" "330 shot" "380 shot" "420 shot" "460 shot" "600 shot"
+    echo "  frames (requested -> frame time, ms): $(frame_times); $FD/sheet.png"
+    sleep 1.2
+    wait_unmapped || true
+    c1=$(osd_counts)
+    counts_check "press during the fade-out" "$c0" "$c1" 1 1 1 || f=1
+
+    # A reload brings the OSD back at once, without the entry.
+    reset_notifs
+    send -a volume -t 4000 -e -h int:value:30 -h string:x-canonical-private-synchronous:volume "Volume: 30%" > /dev/null
+    sleep 0.5
+    touch "$REPO/shell.qml"
+    sleep 2
+    shot RP after-reload > /dev/null
+    check "reload: OSD back as a survivor" "$(notif "d['osd']['restored']")" True || f=1
+    check "reload: no entry animation in the new view" "$(state "$H1['osd']['entries']")" 0 || f=1
+    check "reload: strip opaque, fill at the value" "$(state "($H1['osd']['opacity'], $H1['osd']['level'])")" "(1, 0.3)" || f=1
     reset_notifs
     return $f
 }
