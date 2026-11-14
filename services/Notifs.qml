@@ -47,22 +47,28 @@ Singleton {
 
     // ---- arrival -------------------------------------------------------
 
-    function accept(n: var): void {
-        const e = {
+    // A new entry with every field set (see the list above).
+    function entry(n: var, data: var, cls: var): var {
+        return {
             n: n,
-            data: snapshot(n),
-            tag: String(n.hints["x-canonical-private-synchronous"] ?? ""),
-            restored: n.lastGeneration,
+            data: data,
+            cls: cls,
+            tag: "",
+            restored: false,
             replaced: false,
-            remaining: Infinity,
+            remaining: cls.timeout > 0 ? cls.timeout : Infinity,
             running: false,
             deadline: null,
             waitUntil: null,
             from: null,
             closed: false
         };
-        e.cls = classify(n);
-        e.remaining = e.cls.timeout > 0 ? e.cls.timeout : Infinity;
+    }
+
+    function accept(n: var): void {
+        const e = entry(n, snapshot(n), classify(n));
+        e.tag = String(n.hints["x-canonical-private-synchronous"] ?? "");
+        e.restored = n.lastGeneration;
         n.closed.connect(reason => root.onClosed(e, reason));
         for (const change of [n.summaryChanged, n.bodyChanged, n.expireTimeoutChanged, n.hintsChanged])
             change.connect(() => root.updated(e));
@@ -93,22 +99,25 @@ Singleton {
         reschedule();
     }
 
-    // A notification nothing else can place: it still has to close.
+    // A notification nothing else can place: it still has to close. It
+    // takes the hidden path (5 s, no history) and reads as little as
+    // possible from the object.
     function fallback(n: var, error: var): void {
         console.warn("notifs: could not place notification", n.id, error);
-        const e = {
-            n: n,
-            data: snapshot(n),
-            tag: "",
-            cls: {
-                kind: "note",
-                timeout: 5000,
-                history: false
-            },
-            remaining: 5000,
-            running: false,
-            closed: false
-        };
+        const e = entry(n, {
+            id: n.id,
+            app: "",
+            summary: "",
+            body: "",
+            urgency: Rules.NORMAL,
+            value: null,
+            time: Date.now()
+        }, {
+            kind: "note",
+            timeout: Rules.DND_TIMEOUT,
+            hidden: true,
+            history: false
+        });
         n.closed.connect(reason => root.onClosed(e, reason));
         hide(e);
     }
@@ -148,7 +157,7 @@ Singleton {
     // ---- display -------------------------------------------------------
 
     function hide(e: var): void {
-        e.deadline = Date.now() + e.cls.timeout;
+        e.deadline = Date.now() + Rules.DND_TIMEOUT;
         hidden = hidden.concat([e]);
         reschedule();
     }
@@ -245,26 +254,39 @@ Singleton {
     }
 
     // Asks the server to close an entry: "expire" (reason 1) or "dismiss"
-    // (reason 2). The closed signal arrives synchronously in onClosed.
+    // (reason 2). The closed signal arrives synchronously in onClosed. An
+    // entry without a Notification, or one the server does not answer for,
+    // is dropped here, so that no entry can stay in a slot for ever.
     function close(e: var, how: string): void {
         if (!e || e.closed)
             return;
         if (e.n) {
-            if (how === "expire")
-                e.n.expire();
-            else
-                e.n.dismiss();
-        } else {
-            onClosed(e, how === "expire" ? NotificationCloseReason.Expired : NotificationCloseReason.Dismissed);
+            try {
+                if (how === "expire")
+                    e.n.expire();
+                else
+                    e.n.dismiss();
+            } catch (error) {
+                console.warn("notifs: could not close notification", e.data.id, error);
+            }
         }
+        if (!e.closed)
+            onClosed(e, how === "expire" ? NotificationCloseReason.Expired : NotificationCloseReason.Dismissed);
     }
 
+    // The one place an entry leaves: called from the `closed` signal,
+    // whoever closed it (a timer, a command, an action, the sender). It
+    // runs inside close(), so callers of close() put their own state in
+    // order first.
     function onClosed(e: var, reason: var): void {
         if (e.closed)
             return;
         e.closed = true;
+        // The server deletes the object when this handler returns.
         e.n = null;
+        e.running = false;
         e.deadline = null;
+        e.waitUntil = null;
         if (e.cls.history)
             remember(e);
         if (hidden.includes(e))
@@ -315,18 +337,20 @@ Singleton {
         }
     }
 
+    function due(e: var, now: real): bool {
+        return (e.deadline !== null && e.deadline <= now) || (e.waitUntil !== null && e.waitUntil <= now);
+    }
+
     function sweep(): void {
         const now = Date.now();
-        const due = [];
-        for (const e of [osd, current].concat(hidden))
-            if (e && e.deadline !== null && e.deadline <= now)
-                due.push(e);
-        for (const e of queue)
-            if (e.waitUntil !== null && e.waitUntil <= now)
-                due.push(e);
         // Collected first: each close re-enters onClosed and changes the lists.
-        for (const e of due)
-            close(e, "expire");
+        const found = [osd, current].concat(hidden, queue).filter(e => e && due(e, now));
+        // Checked again: closing the note on display shows the next one, which
+        // may be in `found` for its queue limit. It is on display now, so it
+        // gets its display time.
+        for (const e of found)
+            if (due(e, now))
+                close(e, "expire");
         reschedule();
     }
 
@@ -374,7 +398,9 @@ Singleton {
     }
 
     function dismissAll(): void {
-        const all = [osd, current].concat(queue).filter(e => e);
+        // The queue first: closing the note on display first would show
+        // each waiting one for an instant before it is closed too.
+        const all = queue.concat([current, osd]);
         for (const e of all)
             close(e, "dismiss");
     }
@@ -402,31 +428,20 @@ Singleton {
             return;
         const h = persist.history[0];
         persist.history = persist.history.slice(1);
-        const e = {
-            n: null,
-            data: Object.assign({
-                id: 0,
-                value: null
-            }, h),
-            tag: "",
-            cls: Object.assign(Rules.classify({
-                appName: h.app,
-                urgency: Rules.NORMAL,
-                expireTimeout: -1
-            }, {
-                dnd: false
-            }), {
-                kind: "note",
-                history: true
-            }),
-            restored: false,
-            remaining: 5000,
-            running: false,
-            deadline: null,
-            waitUntil: null,
-            from: null,
-            closed: false
-        };
+        const e = entry(null, Object.assign({
+            id: 0,
+            value: null
+        }, h), Object.assign(Rules.classify({
+            appName: h.app,
+            urgency: Rules.NORMAL,
+            expireTimeout: -1
+        }, {
+            dnd: false
+        }), {
+            kind: "note",
+            timeout: 5000,
+            history: true
+        }));
         enqueue(e);
         reschedule();
     }
