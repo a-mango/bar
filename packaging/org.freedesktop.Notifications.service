@@ -1,0 +1,7 @@
+# D-Bus activation file. Installed at cutover (M8) to
+# ~/.local/share/dbus-1/services/, see docs/PLAN.md section 6.
+# D-Bus service files do not expand %h, hence the absolute path.
+[D-BUS Service]
+Name=org.freedesktop.Notifications
+Exec=/usr/bin/quickshell -p /home/acm/.local/share/bar --no-duplicate
+SystemdService=bar.service

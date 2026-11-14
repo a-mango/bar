@@ -1,0 +1,3 @@
+.test/
+*.qsb
+__pycache__/

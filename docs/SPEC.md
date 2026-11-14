@@ -58,6 +58,8 @@ Handoff rule: while a note is visible, the overlay draws its own compact clock a
 
 Font: `IosevkaTerm Nerd Font` at 15 px, as in waybar's `style.css`.
 
+Text antialiasing: grayscale, set for the whole process with `//@ pragma Env QSG_DISTANCEFIELD_ANTIALIASING = gray` in `shell.qml`. Spike S7 showed that the handoff is exact only with grayscale text: with Qt's default subpixel antialiasing, 9 to 18 pixels differ by 1/255 between the two windows. waybar draws subpixel text, so this is open as question Q1 in `PLAN.md` section 8.
+
 ## 3. Bar
 
 The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `make reference` screenshot of waybar in the nested session is the visual target.
@@ -87,6 +89,7 @@ The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `ma
 - `SystemTray.items`, icons 16 px, 14 px apart.
 - `Passive` items are dimmed (opacity 0.5). `NeedsAttention` items blink on `base08`, alternating every 0.5 s like the `blink` keyframes in `style.css`.
 - Left click: `activate()`, or open the menu if `onlyMenu` is true. Middle click: `secondaryActivate()`. Right click: open the menu through `QsMenuAnchor`. Scroll: `scroll(delta, horizontal)`.
+- `QsMenuAnchor` needs `//@ pragma UseQApplication` in `shell.qml`. Its menu is a QtWidgets menu that does not use `Theme` (spike S9, question Q2 in `PLAN.md` section 8).
 - Tooltip: `tooltipTitle` and `tooltipDescription`.
 - The watcher and the host run inside bar. Quickshell registers `org.kde.StatusNotifierWatcher` and retries when the current owner leaves. At login, `/usr/libexec/sway-systemd/wait-sni-ready` waits up to 25 s for a watcher with a registered host before it starts the XDG autostart applets.
 
@@ -150,7 +153,7 @@ Changes from the mako behavior:
    - While the target output shows a fullscreen window, notes whose rule does not show over fullscreen stay in the queue (decision D5). The first one appears when the fullscreen window leaves.
    - A notification that has waited 30 s in the queue without being shown expires into history (reason 1). This includes notes held during fullscreen, so most notes that arrive during a film end up in history. Critical notifications are exempt: they stay until clicked (decision D2), so they wait in the queue as long as needed. Blocking senders such as `screenshot.sh` would otherwise wait for as long as the queue lasts.
 8. **Timers.** The server has no expiry timer, so all timers live in QML. Expiry calls `n.expire()` (reason 1). A dismiss click calls `n.dismiss()` (reason 2). An action click calls `action.invoke()`, which emits `ActionInvoked` and then closes with reason 2 unless the notification is `resident`. A sender's `CloseNotification` closes with reason 3, and the views react to the `closed` signal. Every tracked notification must close eventually.
-9. **History.** The last 20 closed notifications whose rule keeps history and that are not `transient`. Entries are plain objects (app, summary, body, urgency, time), not `Notification` objects, kept in `PersistentProperties` across reloads. `restore()` shows the newest entry again as a note without actions.
+9. **History.** The last 20 closed notifications whose rule keeps history and that are not `transient`. Entries are plain objects (app, summary, body, urgency, time), not `Notification` objects, kept across reloads in a `property list<var>` of a `PersistentProperties`. A `property var` holding a JS array comes back `undefined` after a reload (spike S8). `restore()` shows the newest entry again as a note without actions.
 10. **State.** `state.json` under `Quickshell.stateDir` stores the DND flag and the last theme mode. With no state file, DND starts off (decision D6).
 
 ## 7. Animation
@@ -183,7 +186,7 @@ Cost: no animation runs while idle. The overlay is unmapped, the bar redraws onl
 - Note clicks follow the rules table. A middle click dismisses the current notification and the whole queue.
 - Hovering a note pauses its timer and its marquee. Leaving resumes both.
 - An OSD covers the whole bar for up to 2 s. A click on it dismisses it.
-- Tray menus open as popups of the bar window. They are the only part of bar that may need keyboard input. Spike S9 checks whether they get it while the bar's keyboard focus is `None`. If not, the bar switches to `WlrKeyboardFocus.OnDemand` while a menu is open.
+- Tray menus open as popups of the bar window. They are the only part of bar that may need keyboard input. Spike S9 showed that they get none while the bar's keyboard focus is `None`: arrow keys and Escape go to the focused window, and the menu only reacts to the pointer. Switching to `WlrKeyboardFocus.OnDemand` once a menu is open does not help, because sway gives the focus on a click and that click has already happened. What works is `OnDemand` while the pointer is on the tray or a menu is open: the opening click then focuses the bar, and the focus returns to the window when the menu closes. `OnDemand` at all times is ruled out, since the bar would keep the keyboard after any click on it. Whether menus get keyboard input at all is question Q2 in `PLAN.md` section 8. Until it is answered, the bar stays at `None`.
 
 ## 9. Inter-Process Communication (IPC)
 
@@ -262,7 +265,7 @@ Bar:
 | B3 | `swaymsg mode resize`, then a mode with a name as long as the `present:` cheat sheet | italic label on `base04`, long name shown in full |
 | B4 | click on the clock, hover on the clock | seconds shown and ticking, calendar popup with today highlighted |
 | B5 | `tests/fake-sni.py` registers an item, sets `NeedsAttention`, then exposes a menu | icon appears, blinks, right click opens the menu, a click on an entry reaches the fake item |
-| B6 | `SNI_WAIT_TIMEOUT=10 /usr/libexec/sway-systemd/wait-sni-ready` | exits 0 |
+| B6 | `SNI_WAIT_TIMEOUT=10 /usr/libexec/sway-systemd/wait-sni-ready` | logs `Successfully waited for org.kde.StatusNotifierHost` (the script exits 0 on failure too) |
 | B7 | a fullscreen test client, then a volume OSD, a screenshot note and a plain note | bar covered, OSD and screenshot drawn above the client, plain note held |
 
 Notifications:
