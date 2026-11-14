@@ -7,6 +7,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 <!-- M0 creates these. Keep this list in sync with the Makefile. -->
 - `make nested`: start the isolated test desktop (headless sway, private D-Bus, quickshell on this tree). `make nested-stop` ends it.
 - `tests/nested.sh run <command>`: run a command inside the nested session (`env -i`, nested display and bus). `tests/nested.sh click <x> <y> [button]` clicks at logical coordinates.
+- `tests/scene.sh setup`: workspaces 1, 2, 3 and `4:demo`, urgent 3, two fake tray items, once per session. Then `mode`, `present`, `focus-other`, `focus-main`, `hover`, `tray <n> <status>`.
 - `make reference`: nested session running waybar with `docs/reference/waybar/`, screenshot of its bar (visual target)
 - `make matrix`: run the `docs/SPEC.md` test matrix against the nested session. `make matrix CASE=N5` runs one case.
 - `make shots`: screenshot the nested output into `.test/shots/`
@@ -33,7 +34,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - One milestone per branch (`mN-slug`). Small commits with conventional subjects (`feat:`, `fix:`, `test:`…).
 - A milestone is done when its "Done when" checks in `docs/PLAN.md` pass. Report evidence (command output, `.test/shots/` paths), not claims.
 - Write spike findings into `docs/PLAN.md` section 8, and update `docs/SPEC.md` when a finding changes behavior.
-- Decisions D1 to D6 (`docs/PLAN.md` section 7) are settled. Changing one, or any new question about how bar should look or behave, is the owner's call: ask, do not guess.
+- Decisions D1 to D7 (`docs/PLAN.md` section 7) are settled. Changing one, or any new question about how bar should look or behave, is the owner's call: ask, do not guess.
 
 ## Gotchas
 <!-- Add one line per non-obvious lesson learned; prune when obsolete. -->
@@ -56,10 +57,16 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - Run everything that talks to the nested session through `tests/nested.sh run`. A plain shell still has the live `WAYLAND_DISPLAY`, `SWAYSOCK` and bus address.
 - `console.log` and `console.debug` are hidden by default. Log with `console.info`.
 - Singletons load on first use. One that must run from startup (`Notifs`, `Sway`) is named in `shell.qml`.
-- `//@ pragma` lines in `shell.qml` take effect at process start, not on a hot reload. `UseQApplication` is required by `QsMenuAnchor`. `Env QSG_DISTANCEFIELD_ANTIALIASING = gray` is required by the pixel-exact handoff.
+- `//@ pragma` lines in `shell.qml` take effect at process start, not on a hot reload. `UseQApplication` is required by `QsMenuAnchor`. `NativeTextRendering` (decision D7) gives hinted grayscale text and the pixel-exact handoff.
 - In `PersistentProperties`, a `property var` holding a JS array or object is `undefined` after a reload. Use `property list<var>`.
 - A headless sway seat has no pointer. `seat seat0 cursor` commands only reach clients while `tests/vpointer.py` runs (the harness starts it). Keyboard tests hold a keyboard with `wtype -s 3600000` in the background.
 - sway gives an `OnDemand` layer surface the keyboard only on a click. Setting `OnDemand` after the click that opens a tray menu is too late.
 - `wait-sni-ready` exits 0 on failure too. Check its `Successfully waited` log line.
 - The I3 event listener also delivers the reply to `SUBSCRIBE` as an event of type `subscribe`.
 - `pkill -f <pattern>` matches the shell that runs it when the pattern is on its own command line. Kill by PID.
+- A QML type named `State` loses to QtQuick's `State`. Do not name a singleton after a QtQuick type.
+- `swaymsg` joins its arguments into one command string: quote names with spaces inside the argument (`mode "\"$name\""`), and pass `--` before commands that contain `--custom`.
+- sway places a new output (`create_output`) first and moves HEADLESS-1. `tests/scene.sh focus-other` puts both outputs back at x 0 and 1920.
+- `seat seat0 cursor set 0 <y>` leaves x unchanged: a 0 coordinate means "keep".
+- sway does not slide popups of layer surfaces back onto the output. Anchor popups near an edge so that they grow away from it.
+- The nested session has `tests/bin` first on `PATH`: `darkman get` is the stub, which answers from `.test/darkman-mode` or fails.

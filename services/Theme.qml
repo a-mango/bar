@@ -4,19 +4,28 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Palettes and fonts. Views take every color from here.
-// M0 version: loads the palette for `mode` from themes/. M2 adds the darkman
-// startup mode, the state fallback and the `theme` IPC handler.
+// Palettes, fonts and the theme mode. Views take every color from here.
+// A mode change only swaps the bound colors: it never reloads the shell,
+// which would unmap the bar (docs/SPEC.md section 10).
 Singleton {
     id: root
 
-    property string mode: "dark"
+    // "dark" or "light". Startup: `darkman get`, else the mode stored in
+    // state.json, else dark.
+    property string mode: StateFile.get("themeMode", "dark")
 
     readonly property string fontFamily: "IosevkaTerm Nerd Font"
     readonly property int fontSize: 15
+    // waybar (Pango) rounds the font's 7.5 px advance to 8 px, Qt keeps
+    // 7.5. Every text adds this spacing to match the reference widths.
+    readonly property real letterSpacing: 0.5
     readonly property int barHeight: 24
 
-    readonly property var palette: parse(file.text())
+    readonly property var palettes: ({
+            dark: parse(darkFile.text()),
+            light: parse(lightFile.text())
+        })
+    readonly property var palette: palettes[mode] ?? palettes.dark
 
     readonly property color base00: palette.base00
     readonly property color base01: palette.base01
@@ -45,9 +54,54 @@ Singleton {
         return out;
     }
 
+    function setMode(next: string): bool {
+        if (next !== "dark" && next !== "light") {
+            console.warn("theme: unknown mode", next);
+            return false;
+        }
+        if (mode !== next)
+            mode = next;
+        if (StateFile.get("themeMode", "") !== next)
+            StateFile.set("themeMode", next);
+        return true;
+    }
+
     FileView {
-        id: file
-        path: Quickshell.shellPath("themes/base16-default-" + root.mode + ".css")
+        id: darkFile
+        path: Quickshell.shellPath("themes/base16-default-dark.css")
         blockLoading: true
+    }
+
+    FileView {
+        id: lightFile
+        path: Quickshell.shellPath("themes/base16-default-light.css")
+        blockLoading: true
+    }
+
+    Process {
+        running: true
+        command: ["darkman", "get"]
+        stdout: StdioCollector {
+            id: darkman
+        }
+        onExited: code => {
+            const answer = darkman.text.trim();
+            if (code === 0 && (answer === "dark" || answer === "light"))
+                root.setMode(answer);
+            else
+                console.info("theme: darkman get failed (exit " + code + "), keeping", root.mode);
+        }
+    }
+
+    IpcHandler {
+        target: "theme"
+
+        function set(mode: string): void {
+            root.setMode(mode);
+        }
+
+        function mode(): string {
+            return root.mode;
+        }
     }
 }

@@ -5,32 +5,28 @@ import Quickshell
 import Quickshell.I3
 import Quickshell.Io
 
-// sway state that the I3 singleton does not expose. M0 version: the binding
-// mode and a log of raw events (spike S10). M2 adds workspaces per output,
-// M5 the fullscreen state per output.
+// sway state for the bar: workspaces per output and the binding mode.
+// M5 adds the fullscreen state per output (docs/SPEC.md section 11).
 Singleton {
     id: root
 
     property string mode: "default"
 
-    // Spike S10: the last events seen, newest last, as {type, change, fullscreen_mode}.
-    property var events: []
-
-    function record(type: string, data: var): void {
-        const entry = { type: type, change: data.change };
-        if (data.container)
-            entry.fullscreen_mode = data.container.fullscreen_mode;
-        events = events.concat([entry]).slice(-20);
+    // The workspaces of one output, sorted by number, then by name.
+    function workspacesOn(output: string): var {
+        return I3.workspaces.values.filter(w => w.monitor && w.monitor.name === output).sort((a, b) => {
+            const na = a.number < 0 ? Infinity : a.number;
+            const nb = b.number < 0 ? Infinity : b.number;
+            return na !== nb ? na - nb : a.name.localeCompare(b.name);
+        });
     }
 
     I3IpcListener {
-        subscriptions: ["mode", "window"]
+        subscriptions: ["mode"]
         onIpcEvent: event => {
-            const data = JSON.parse(event.data);
-            console.info("sway event", event.type, event.data.length, "bytes");
+            // The reply to SUBSCRIBE also arrives here, as type "subscribe".
             if (event.type === "mode")
-                root.mode = data.change;
-            root.record(event.type, data);
+                root.mode = JSON.parse(event.data).change;
         }
     }
 

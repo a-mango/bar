@@ -56,9 +56,9 @@ Overlay rules:
 
 Handoff rule: while a note is visible, the overlay draws its own compact clock and the whole center span. The bar's clock never animates. The overlay's first and last frames reproduce the bar's idle center pixel for pixel (same font, position and colors), so the switch between the two windows cannot be seen (spike S7).
 
-Font: `IosevkaTerm Nerd Font` at 15 px, as in waybar's `style.css`.
+Font: `IosevkaTerm Nerd Font` at 15 px, as in waybar's `style.css`. Every bar text adds 0.5 px letter spacing: Pango (waybar) rounds the font's 7.5 px advance to 8 px, Qt does not.
 
-Text antialiasing: grayscale, set for the whole process with `//@ pragma Env QSG_DISTANCEFIELD_ANTIALIASING = gray` in `shell.qml`. Spike S7 showed that the handoff is exact only with grayscale text: with Qt's default subpixel antialiasing, 9 to 18 pixels differ by 1/255 between the two windows. waybar draws subpixel text, so this is open as question Q1 in `PLAN.md` section 8.
+Text rendering: Qt's native (FreeType) renderer, set for the whole process with `//@ pragma NativeTextRendering` in `shell.qml` (decision D7). It hints glyphs like waybar's Pango, draws them with grayscale antialiasing, and keeps the handoff pixel-exact (spike S7: 0 differing pixels). Qt's default distance-field renderer uses subpixel antialiasing, which leaves pixels off by 1/255 between the two windows.
 
 ## 3. Bar
 
@@ -73,15 +73,15 @@ The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `ma
   - Focused: `base07` background, `base00` text.
   - Urgent: `base08` background.
   - Hover: `base03` background.
-- Buttons have 5 px horizontal padding and no rounded corners. A left click activates the workspace (`I3Workspace.activate()`). Scrolling does nothing (waybar's `disable-scroll`).
-- The sway mode follows the workspaces with a 4 px margin. It is hidden in `default`. Other modes show their name in italics on `base04`. Source: an `I3IpcListener` subscribed to `mode` events, with the initial mode from `swaymsg -t get_binding_state` (spike S10).
+- Buttons have 5 px horizontal padding around a content box of at least 16 px, and no rounded corners. Labels are bold, as the GTK theme draws waybar's buttons. A left click activates the workspace (`I3Workspace.activate()`). Scrolling does nothing (waybar's `disable-scroll`).
+- The sway mode follows the workspaces with a 6 px gap (waybar's 4 px margin plus 2 px module spacing). It is hidden in `default`. Other modes show their name in italics, `base07` on `base04`, with 7 px padding. Source: an `I3IpcListener` subscribed to `mode` events, with the initial mode from `swaymsg -t get_binding_state` (spike S10).
 - The mode name always shows in full while no note is visible. The `present:` mode doubles as a cheat sheet (`~/.config/sway/config.d/60-bindings-present.conf`), and waybar cuts it short today. The text only elides on the right if a note would otherwise get less than 600 px.
 
 ### Center: clock
 
-- Format `yyyy-MM-dd HH:mm`, centered on the output whatever the width of the left and right sections (waybar's `fixed-center`).
+- Format `yyyy-MM-dd HH:mm` in a box with 7 px padding, centered on the output whatever the width of the left and right sections (waybar's `fixed-center`).
 - A left click toggles `HH:mm:ss`, which updates every second only while it is shown.
-- Hovering shows a month calendar in a `PopupWindow` above the clock, with today highlighted (waybar's `{calendar}` tooltip).
+- Hovering for 400 ms shows a month calendar in a `PopupWindow` above the clock (waybar's `{calendar}` tooltip): `yyyy MMMM`, the weekday names from the locale, then the weeks, with today in bold and underlined as in waybar's default format. The popup is `base00` with a 1 px `base03` border and 8 px padding.
 - Hover colors: `base07` background, `base00` text.
 
 ### Right: tray
@@ -90,7 +90,8 @@ The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `ma
 - `Passive` items are dimmed (opacity 0.5). `NeedsAttention` items blink on `base08`, alternating every 0.5 s like the `blink` keyframes in `style.css`.
 - Left click: `activate()`, or open the menu if `onlyMenu` is true. Middle click: `secondaryActivate()`. Right click: open the menu through `QsMenuAnchor`. Scroll: `scroll(delta, horizontal)`.
 - `QsMenuAnchor` needs `//@ pragma UseQApplication` in `shell.qml`. Its menu is a QtWidgets menu that does not use `Theme` (spike S9, question Q2 in `PLAN.md` section 8).
-- Tooltip: `tooltipTitle` and `tooltipDescription`.
+- Tooltip after 400 ms of hover: `tooltipTitle` (`base07`) over `tooltipDescription` (`base05`, simple markup allowed), in the same frame as the calendar. It grows up and to the left from the icon's top right corner, because sway does not slide popups of layer surfaces back onto the output.
+- The tray box has 7 px padding on both sides, so the last icon ends 7 px from the right edge.
 - The watcher and the host run inside bar. Quickshell registers `org.kde.StatusNotifierWatcher` and retries when the current owner leaves. At login, `/usr/libexec/sway-systemd/wait-sni-ready` waits up to 25 s for a watcher with a registered host before it starts the XDG autostart applets.
 
 ## 4. Notification display
@@ -222,7 +223,7 @@ Sway bindings (decision D3), installed at cutover from `packaging/sway-bindings.
 
 - The repository ships the two palettes as `themes/base16-default-dark.css` and `themes/base16-default-light.css` (copies of `docs/reference/waybar/`). `services/Theme.qml` parses their 16 `@define-color baseXX #rrggbb;` lines.
 - Every color in the views comes from the theme service, and no view contains a raw hex value.
-- Startup mode: the output of `darkman get` (through `Process`). darkman may not be up yet at login, so if that fails, the last mode stored in `state.json` applies, then `dark`.
+- Startup mode: the output of `darkman get` (through `Process`). darkman may not be up yet at login, so if that fails, the last mode stored in `state.json` (key `themeMode`) applies, then `dark`. Every applied mode is written back to that key.
 - Transitions: a new darkman hook, `~/.local/share/darkman/bar.sh`, calls `quickshell ipc --any-display -p ~/.local/share/bar call theme set "$1"`. darkman is a systemd user service and may lack `WAYLAND_DISPLAY` when it starts at login, and `quickshell ipc` only sees instances on the caller's display without `--any-display`. The `-p` path already selects the live instance only. The hook exits quietly when bar is not running.
 - A theme change only changes the bound color properties. It never calls `Quickshell.reload()`, which would unmap the bar.
 

@@ -8,7 +8,9 @@ and menu-click tests use this item instead.
 
     tests/nested.sh run tests/fake-sni.py
 
-SIGUSR1 sets the status to NeedsAttention, SIGUSR2 back to Active.
+FAKE_SNI_STATUS sets the first status (Active by default), FAKE_SNI_PIDFILE
+a file to write the process id to. SIGUSR1 sets
+the status to NeedsAttention, SIGUSR2 to Active, SIGHUP to Passive.
 All texts are fictional.
 """
 import asyncio
@@ -28,7 +30,7 @@ LOG = open(os.path.join(os.environ["BAR_TEST_DIR"], "logs", "fake-sni.log"), "a"
 
 
 def log(*parts):
-    line = time.strftime("%H:%M:%S ") + " ".join(str(part) for part in parts)
+    line = time.strftime("%H:%M:%S ") + f"[{os.getpid()}] " + " ".join(str(part) for part in parts)
     print(line, flush=True)
     LOG.write(line + "\n")
 
@@ -55,7 +57,7 @@ def icon_pixmap():
 class Item(ServiceInterface):
     def __init__(self):
         super().__init__("org.kde.StatusNotifierItem")
-        self.status = "Active"
+        self.status = os.environ.get("FAKE_SNI_STATUS", "Active")
 
     @dbus_property(access=PropertyAccess.READ)
     def Category(self) -> "s":
@@ -213,6 +215,9 @@ class Menu(ServiceInterface):
 
 
 async def main():
+    if os.environ.get("FAKE_SNI_PIDFILE"):
+        with open(os.environ["FAKE_SNI_PIDFILE"], "w") as pidfile:
+            print(os.getpid(), file=pidfile)
     bus = await MessageBus().connect()
     item = Item()
     bus.export("/StatusNotifierItem", item)
@@ -228,6 +233,7 @@ async def main():
     loop = asyncio.get_running_loop()
     loop.add_signal_handler(signals.SIGUSR1, item.set_status, "NeedsAttention")
     loop.add_signal_handler(signals.SIGUSR2, item.set_status, "Active")
+    loop.add_signal_handler(signals.SIGHUP, item.set_status, "Passive")
     await bus.wait_for_disconnect()
 
 

@@ -29,7 +29,7 @@ log() { echo "nested: $*" >&2; }
 session_env() {
     printf '%s\n' \
         "HOME=$HOME" \
-        "PATH=$PATH" \
+        "PATH=$REPO/tests/bin:$PATH" \
         "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR" \
         "DBUS_SESSION_BUS_ADDRESS=$1" \
         "SWAYSOCK=$T/sway.sock" \
@@ -135,7 +135,7 @@ cmd_start() {
         log "already running (session $(session_pid)), stop it first"; exit 1
     fi
     mkdir -p "$T/logs" "$T/shots" "$T/state" "$T/cache"
-    rm -f "$T/env" "$T/sway.sock" "$T/logs/vpointer.log"
+    rm -f "$T/env" "$T/sway.sock" "$T/logs/vpointer.log" "$T/scene-ready" "$T"/fake-sni-*.pid
 
     # Clean up if the start is interrupted or fails half-way.
     trap 'trap - EXIT INT TERM; log "start aborted"; cmd_stop; exit 1' EXIT INT TERM

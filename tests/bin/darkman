@@ -1,0 +1,12 @@
+#!/bin/sh
+# Stand-in for darkman inside the nested session (tests/nested.sh puts
+# tests/bin first on PATH). `darkman get` prints the mode stored in
+# $BAR_TEST_DIR/darkman-mode, or fails like darkman does when its service
+# is not up. Nothing else is supported.
+[ "$1" = get ] || { echo "darkman stub: only 'get' is supported" >&2; exit 2; }
+if [ -r "$BAR_TEST_DIR/darkman-mode" ]; then
+    cat "$BAR_TEST_DIR/darkman-mode"
+else
+    echo "darkman stub: service not running" >&2
+    exit 1
+fi
