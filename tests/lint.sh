@@ -27,6 +27,7 @@ for dir in services bar overlay; do
             fi
         done
     } > ".test/lint/qs/$dir/qmldir"
+    cp "$dir"/*.js ".test/lint/qs/$dir/" 2>/dev/null || true
 done
 
 # The module files are linted through their copies (qmllint resolves
