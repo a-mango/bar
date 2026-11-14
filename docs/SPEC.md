@@ -297,9 +297,10 @@ Notifications:
 
 N5 and N6 save frame series (`tests/frames.py`: shots at 0, 60, 120, 300 and 900 ms, each stamped with its frame time). N6 also saves palette sheets in both themes and checks that a click dismisses the OSD. B7 covers the OSD part until M5 adds the screenshot note and the held plain note.
 
-`tests/matrix.sh` has four more cases:
+`tests/matrix.sh` has five more cases:
 
 - `SC`: `GetCapabilities` and the `screenshot.sh` contract of section 12 through IPC (`invoke discard` prints `discard`, the 10 s timeout prints nothing).
 - `NX`: paths where a notification could get stuck or lose its place. A `resident` notification after its action, `replaces_id` updates of waiting and hidden notifications, and the order of `dismissAll`.
-- `RP`: rapid OSD presses. Key repeat (30 presses 40 ms apart), a press during the fade-out and a reload while an OSD shows. One overlay map and one entry animation each time, an opaque fill in every frame of the key repeat, and no entry after the reload.
+- `RP`: rapid OSD presses. Key repeat (30 presses 40 ms apart), a press during the fade-out and a reload while an OSD shows. One overlay map and one entry animation each time, an opaque fill in every frame of the key repeat, a fading strip in the frames before the late press, and no entry after the reload.
+- `ON`: an OSD over an open note. The overlay is already mapped, so the entry runs without a new surface. The note pauses under the strip, then comes back with its timer and its input mask.
 - `END`: nothing is left tracked and the overlay is unmapped. It runs last.

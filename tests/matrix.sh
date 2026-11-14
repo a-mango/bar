@@ -7,9 +7,9 @@
 # Each case is a shell function named case_<ID>. It saves screenshots to
 # .test/shots/<ID>/ and returns non-zero on failure. M2 added B1 to B6,
 # M1 the N cases, NX (paths outside the SPEC matrix), SC and END. M3 adds
-# the OSD frame series (N5, N6, tests/frames.py), B7 for the OSD and RP
-# (rapid presses). The B cases and the OSD cases set up tests/scene.sh
-# once per session.
+# the OSD frame series (N5, N6, tests/frames.py), B7 for the OSD, RP (rapid
+# presses) and ON (an OSD over a note). The B cases and the OSD cases set
+# up tests/scene.sh once per session.
 set -euo pipefail
 REPO=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
 T=$REPO/.test
@@ -723,6 +723,17 @@ case_RP() {
     frames RP/fade "0 run $(osd_cmd volume 40 300)" "360 run $(osd_cmd volume 70 800)" \
         "280 shot" "330 shot" "380 shot" "420 shot" "460 shot" "600 shot"
     echo "  frames (requested -> frame time, ms): $(frame_times); $FD/sheet.png"
+    # The counters alone would also pass for a press before the close: one
+    # frame between the close and the second press must show a fading strip
+    # (x 2 is over workspace 1, base00 in the bar).
+    local fading=0
+    for t in 0330 0380; do
+        case $(px "$FD/t$t.png" color 2 $CTOP) in
+            "$(palette base0D)" | "$(palette base00)") ;;
+            *) fading=$((fading + 1)) ;;
+        esac
+    done
+    more "press during the fade-out: frames at 330 and 380 ms with a fading strip" "$fading" 1 || f=1
     sleep 1.2
     wait_unmapped || true
     c1=$(osd_counts)
@@ -738,6 +749,42 @@ case_RP() {
     check "reload: OSD back as a survivor" "$(notif "d['osd']['restored']")" True || f=1
     check "reload: no entry animation in the new view" "$(state "$H1['osd']['entries']")" 0 || f=1
     check "reload: strip opaque, fill at the value" "$(state "($H1['osd']['opacity'], $H1['osd']['level'])")" "(1, 0.3)" || f=1
+    reset_notifs
+    return $f
+}
+
+# An OSD over an open note (SPEC section 6, item 7): the overlay is already
+# mapped, so the entry runs without a new surface, and it still has to start
+# (it waits for the next frame of the window). The note pauses under the
+# strip and is back, with its timer and its input mask, once the OSD leaves.
+case_ON() {
+    local f=0 c0 c1 c2 s
+    prepare
+    reset_notifs
+    send "Sync finished" "fictional test note" > /dev/null
+    sleep 0.5
+    c0=$(osd_counts)
+    # A long timeout, so that the checks below see the OSD; dismissed after.
+    send -a volume -t 3000 -e -h int:value:40 -h string:x-canonical-private-synchronous:volume "Volume: 40%" > /dev/null
+    sleep 0.35
+    s=$(shot ON osd-over-note)
+    c1=$(osd_counts)
+    counts_check "OSD over the note" "$c0" "$c1" 0 1 0 || f=1
+    check "OSD opaque, fill at the value" "$(state "($H1['osd']['opacity'], $H1['osd']['level'])")" "(1, 0.4)" || f=1
+    check "OSD fill drawn over the note" "$(px "$s" color 2 $TOP)" "$(palette base0D)" || f=1
+    check "note still current, timer paused" "$(notif "(d['note']['summary'], d['note']['running'])")" "('Sync finished', False)" || f=1
+    ipc notify dismiss # the OSD while one shows (Q7)
+    sleep 0.4
+    s=$(shot ON note-after-osd)
+    check "OSD gone, overlay still mapped for the note" "$(state "($H1['osd']['active'], $H1['visible'])")" "(False, True)" || f=1
+    check "note on display again, timer running" "$(notif "(d['note']['summary'], d['note']['running'])")" "('Sync finished', True)" || f=1
+    check "note span drawn again (base01)" "$(px "$s" color 960 $TOP)" "$(palette base01)" || f=1
+    click 65 $MID
+    sleep 0.3
+    check "mask back on the note span: a click on workspace 3 reaches the bar" "$(focused_ws)" 3 || f=1
+    n swaymsg -q workspace 2
+    c2=$(osd_counts)
+    counts_check "OSD over the note, whole case" "$c0" "$c2" 0 1 0 || f=1
     reset_notifs
     return $f
 }
