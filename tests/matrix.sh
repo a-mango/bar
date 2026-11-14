@@ -6,8 +6,12 @@
 #
 # Each case is a shell function named case_<ID>. It saves screenshots to
 # .test/shots/<ID>/ and returns non-zero on failure. M2 added B1 to B6,
-# M1 adds the N cases, NX (paths outside the SPEC matrix), SC and END.
-# The B cases set up tests/scene.sh once per session.
+# M1 the N cases, NX (paths outside the SPEC matrix), SC and END. M4 adds
+# N2, N4, N15, N16, the frame series of N1 to N4 and N15, HO (handoff), NW
+# (note width beside a long mode name) and CPU (idle cost).
+# The B cases and the note view cases set up tests/scene.sh once per session.
+# N16 and END run last, in that order. N16 compares with a screenshot taken
+# before the first case.
 set -euo pipefail
 REPO=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
 T=$REPO/.test
@@ -229,12 +233,25 @@ within() {
 notif() { ipc notify status | python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 send() { n notify-send -p "$@"; }
 overlay_mapped() { state "d['overlays'][0]['visible']"; }
+# Waits for the overlay to unmap: the note view's leave animation runs
+# after the notification closed (about 0.5 s).
+wait_unmapped() {
+    for _ in $(seq 40); do
+        [ "$(overlay_mapped)" = False ] && return 0
+        sleep 0.1
+    done
+    return 1
+}
 # Every case starts and ends with nothing on display and DND off.
 reset_notifs() {
     ipc notify dismissAll
     ipc notify setDnd false
+    ipc debug slow 1
     for _ in $(seq 70); do
-        [ "$(notif "d['tracked']")" = 0 ] && return 0
+        if [ "$(notif "d['tracked']")" = 0 ]; then
+            wait_unmapped || echo "  note: the overlay is still mapped after the reset"
+            return 0
+        fi
         sleep 0.1
     done
     echo "  note: $(notif "d['tracked']") notification(s) still tracked after the reset"
@@ -247,39 +264,72 @@ closed_check() {
 }
 
 case_N1() {
-    local f=0 id
+    local f=0 id s left tray
+    prepare
     reset_notifs
     bus_start N1
     id=$(send "Build finished" "demo-app compiled in 42 s")
-    sleep 0.5
-    shot N1 visible > /dev/null
+    sleep 1
+    s=$(shot N1 visible)
     check "on display" "$(notif "d['current']['summary']")" "Build finished" || f=1
     check "kind" "$(notif "d['kind']")" note || f=1
     check "overlay mapped" "$(overlay_mapped)" True || f=1
-    sleep 5
+    check "note view open" "$(view "v['phase']")" open || f=1
+    left=$(state "$(bar1)['leftEnd']")
+    tray=$(state "$(bar1)['trayStart']")
+    check "span from the left section + 8 (scene: workspaces end at 136)" "$(view "v['span']['x']")" "$(python3 -c "print(round($left + 8))")" || f=1
+    check "span to the tray - 8 (scene: tray starts at 1867)" "$(view "v['span']['end']")" "$(python3 -c "print(round($tray - 8))")" || f=1
+    check "compact clock at the span's left edge, 'HH:mm' + 14 px" "$(view "(v['clock']['x'], v['clock']['width'])")" "(144, 54)" || f=1
+    more "compact clock text drawn" "$(px "$s" ink 144 1180 198 1198)" 3 || f=1
+    check "note background (base01) from the separator on" "$(px "$s" run 1000 1179 | cut -d' ' -f1)" 206 || f=1
+    check "note background over the bar's clock box" "$(px "$s" color 960 1179)" "$(palette base01)" || f=1
+    check "progress line on the top edge (base03)" "$(px "$s" color 220 1176)" "$(palette base03)" || f=1
+    sleep 4.5
     bus_stop
     closed_check "note" "$id" "Build finished" 1 5.0 || f=1
-    check "overlay unmapped afterwards" "$(overlay_mapped)" False || f=1
+    wait_unmapped
+    check "overlay unmapped after the leave animation" "$(overlay_mapped)" False || f=1
+
+    echo "  frame series (slow motion x10): enter, then leave after a dismiss"
+    ipc debug slow 10
+    frames N1 enter 10 0 40 80 120 160 200 240 280 320 400 480 560 640 -- notify-send -t 30000 "Build finished" "demo-app compiled in 42 s"
+    frames N1 leave 10 0 60 120 180 240 300 360 420 480 540 -- quickshell ipc -p "$REPO" call notify dismiss
+    ipc debug slow 1
+    wait_unmapped
     reset_notifs
     return $f
 }
 
 case_N3() {
-    local f=0 a b c
+    local f=0 a b c ta s1 s3
+    prepare
     reset_notifs
     bus_start N3
-    a=$(send "Note one" "first of three"); sleep 0.1
+    a=$(send "Note one" "first of three"); ta=$(date +%s.%N); sleep 0.1
     b=$(send "Note two" "second of three"); sleep 0.1
     c=$(send "Note three" "third of three")
-    sleep 0.4
-    shot N3 first > /dev/null
+    sleep 0.8
+    s1=$(shot N3 first)
     check "first on display" "$(notif "d['current']['summary']")" "Note one" || f=1
     check "waiting (+2)" "$(notif "d['queued']")" 2 || f=1
-    sleep 5
-    shot N3 second > /dev/null
+    check "counter" "$(view "v['counter']")" "+2" || f=1
+    # The roll starts when note one times out, 5 s after it arrived. Slow
+    # motion x10 for that roll only.
+    until_t "$ta" 4.5
+    ipc debug slow 10
+    echo "  frame series of the roll (slow motion x10)"
+    FRAMES_T0=$(python3 -c "print($ta + 5.0)") frames N3 roll 10 0 25 50 75 100 125 150 200 300
     check "second on display after the first leaves" "$(notif "d['current']['summary']")" "Note two" || f=1
     check "waiting (+1)" "$(notif "d['queued']")" 1 || f=1
-    sleep 10.5
+    check "counter after the roll" "$(view "v['counter']")" "+1" || f=1
+    check "no second wipe: the span stayed open" "$(view "(v['phase'], v['w'], v['clock']['width'])")" "('open', 1, 54)" || f=1
+    ipc debug slow 1
+    until_t "$ta" 10.6
+    s3=$(shot N3 third)
+    check "third on display" "$(notif "d['current']['summary']")" "Note three" || f=1
+    check "no counter with nothing waiting" "$(view "v['counter']")" "" || f=1
+    more "counter drawn at the span's right end (+2 against none)" "$(px "$s1" diff "$s3" 1828 1180 1856 1198)" 10 || f=1
+    until_t "$ta" 15.6
     bus_stop
     closed_check "first, from its arrival" "$a" "Note one" 1 5.0 || f=1
     closed_check "second, from the first arrival" "$b" "Note one" 1 10.0 || f=1
@@ -383,6 +433,7 @@ case_N11() {
     shot N11 after-reload > /dev/null
     check "still on display after the reload" "$(notif "d['current']['id']")" "$id" || f=1
     check "marked as a survivor (no second entry animation)" "$(notif "d['note']['restored']")" True || f=1
+    check "note view back open without the entry animation" "$(view "(v['phase'], v['c'], v['w'])")" "('open', 1, 1)" || f=1
     sleep 5
     bus_stop
     # Timer restarted at the reload: about 1 s + reload + 5 s, not 5 s.
@@ -459,6 +510,271 @@ case_N18() {
     check "older closed as dismissed" "$(closed "$a" "Battery low" | cut -d' ' -f1)" 2 || f=1
     reset_notifs
     return $f
+}
+
+# ---- note view (M4) -----------------------------------------------------
+
+# One field of the note view on HEADLESS-1, as a Python expression on `v`.
+view() {
+    ipc debug state | python3 -c "import json,sys; d=json.load(sys.stdin); v=[o['note'] for o in d['overlays'] if o['screen'] == 'HEADLESS-1'][0]; print($1)"
+}
+# frames <case> <label> <slow> <ms...> [-- command]: a frame series of the
+# bar strip into .test/shots/<case>/ (tests/frames.py); prints the sheet.
+frames() {
+    local c=$1; shift
+    echo "  frames: $("$REPO/tests/frames.py" "$T/shots/$c" "$@" | tail -n 1)"
+}
+# until_t <epoch> <seconds>: sleeps until <seconds> after <epoch>.
+until_t() {
+    local wait
+    wait=$(python3 -c "import time; print(max(0, $1 + $2 - time.time()))")
+    sleep "$wait"
+}
+# The clock box of the idle bar, in physical pixels, for comparisons that
+# span a minute change.
+CLOCK_BOX=284x48+1778+2352
+# pixdiff <a> <b> [args]: the comparison line of tests/pixdiff.py.
+pixdiff() { "$REPO/tests/pixdiff.py" "$@" || true; }
+# Workspace 3 urgent again (a click on 3 clears it), as tests/scene.sh setup leaves it.
+urgent_again() { n swaymsg -q '[title="client-3"] urgent enable'; }
+
+case_N2() {
+    local f=0 body id o1 o2 a b fp
+    prepare
+    reset_notifs
+    body=$(python3 -c 'import sys; s = "Fictional release notes for demo-app: the parser reads longer lines, the cache keeps fewer copies, the demo theme gains two colors. "; print((s * 4)[:400])')
+    bus_start N2
+    echo "  frame series at normal speed: hold for 1200 ms once the wipe ends, then the scroll"
+    "$REPO/tests/frames.py" "$T/shots/N2" marquee 1 300 800 1300 1700 2100 2500 3000 3500 4000 4500 -- notify-send -p "Release notes" "$body" > "$T/logs/N2-frames.out" &
+    fp=$!
+    sleep 1.25
+    id=$(notif "d['current']['id']")
+    read -r o1 <<< "$(view "v['marquee']['offset']")"
+    check "body length" "$(view "len(v['line']['body'])")" 400 || f=1
+    more "line wider than its space (overflow px)" "$(view "int(v['marquee']['overflow'])")" 1 || f=1
+    check "1.25 s after arrival: holding at the start (wipe 560 ms + hold 1200 ms)" "$o1" 0 || f=1
+    sleep 1.25
+    # Speed: two reads 1 s apart, each timed around its IPC call.
+    read -r o1 t1 <<< "$(view "f\"{v['marquee']['offset']} {__import__('time').time()}\"")"
+    sleep 1
+    read -r o2 t2 <<< "$(view "f\"{v['marquee']['offset']} {__import__('time').time()}\"")"
+    more "2.5 s after arrival: scrolled left (px)" "${o1%.*}" 20 || f=1
+    within "scroll speed (px/s)" "$(python3 -c "print(f'{($o2 - $o1) / ($t2 - $t1):.1f}')")" 60 8 || f=1
+    wait "$fp" || true
+    echo "  frames: $(tail -n 1 "$T/logs/N2-frames.out")"
+    a=$T/shots/N2/marquee-00800.png
+    b=$T/shots/N2/marquee-01300.png
+    check "frames 800 and 1300 ms: the text stands still (below the progress line)" "$(px "$a" diff "$b" 206 3 1840 23)" 0 || f=1
+    more "frames 2500 and 3000 ms: the text moves" "$(px "$T/shots/N2/marquee-02500.png" diff "$T/shots/N2/marquee-03000.png" 206 3 1840 23)" 100 || f=1
+    sleep 2.2
+    bus_stop
+    closed_check "long note" "$id" "Release notes" 1 5.0 || f=1
+    wait_unmapped
+
+    echo "  a line that fits: no marquee"
+    id=$(send "Short note" "fits in the span")
+    sleep 2
+    a=$(shot N2 fits-2s)
+    sleep 1.5
+    b=$(shot N2 fits-3.5s)
+    check "fits: no overflow, no marquee, no offset" "$(view "(v['marquee']['overflow'], v['marquee']['running'], v['marquee']['offset'])")" "(0, False, 0)" || f=1
+    check "fits: the text stands still from 2 to 3.5 s" "$(px "$a" diff "$b" 206 1179 1840 1199)" 0 || f=1
+    reset_notifs
+    return $f
+}
+
+case_N4() {
+    local f=0 id s glows lo hi
+    prepare
+    reset_notifs
+    ipc notify setDnd true
+    bus_start N4
+    ipc debug slow 10
+    echo "  frame series of the entry (slow motion x10)"
+    frames N4 enter 10 0 80 160 240 320 400 480 560 700 -- notify-send -u critical -a battery-appindicator "Battery low" "5% remaining"
+    ipc debug slow 1
+    id=$(notif "d['current']['id']")
+    s=$(shot N4 visible)
+    check "DND on" "$(notif "d['dnd']")" True || f=1
+    check "critical on display in DND" "$(notif "(d['kind'], d['current']['summary'])")" "('critical', 'Battery low')" || f=1
+    check "red span (base08)" "$(px "$s" color 1000 1179)" "$(palette base08)" || f=1
+    check "no progress line without a timeout" "$(view "v['timed']")" False || f=1
+    check "glow pulse running" "$(view "v['pulse']")" True || f=1
+    echo "  frame series of the pulse (normal speed, 1600 ms period)"
+    frames N4 pulse 1 0 200 400 600 800 1000 1200 1400 1600
+    glows=$(for _ in $(seq 12); do view "v['glow']"; sleep 0.1; done | tr '\n' ' ')
+    echo "  glow opacity samples: $glows"
+    read -r lo hi <<< "$(python3 -c "import sys; v = [float(x) for x in sys.argv[1].split()]; print(min(v), max(v))" "$glows")"
+    check "glow pulses down to about 0.4" "$(python3 -c "print($lo < 0.6)")" True || f=1
+    check "glow pulses up to about 1.0" "$(python3 -c "print($hi > 0.85)")" True || f=1
+    more "pulse visible near the leading edge (frames 0 and 800 ms)" "$(px "$T/shots/N4/pulse-00000.png" diff "$T/shots/N4/pulse-00800.png" 1830 0 1866 24)" 10 || f=1
+    sleep 6
+    check "still on display after 10 s (stays until clicked)" "$(notif "(d['current']['id'], d['kind'])")" "($id, 'critical')" || f=1
+    # Clicks arrive with M5: dismiss through IPC.
+    ipc notify dismiss
+    wait_unmapped
+    bus_stop
+    check "dismissed: NotificationClosed reason" "$(closed "$id" "Battery low" | cut -d' ' -f1)" 2 || f=1
+    reset_notifs
+    return $f
+}
+
+case_N15() {
+    local f=0 id c0 fp
+    prepare
+    reset_notifs
+    id=$(send -t 30000 "Mask check" "clicks beside the note reach the bar")
+    sleep 1
+    c0=$(state "d['overlays'][0]['clicks']")
+    echo "  frame series around a click on workspace 3 (normal speed)"
+    "$REPO/tests/frames.py" "$T/shots/N15" click 1 0 200 400 700 > "$T/logs/N15-frames.out" &
+    fp=$!
+    sleep 0.1
+    click 65 $MID
+    wait "$fp" || true
+    echo "  frames: $(tail -n 1 "$T/logs/N15-frames.out")"
+    sleep 0.2
+    shot N15 after-click > /dev/null
+    check "workspace 3 focused after a click beside the note" "$(focused_ws)" 3 || f=1
+    check "note still on display" "$(notif "d['current']['id']")" "$id" || f=1
+    check "the overlay did not get that click" "$(state "d['overlays'][0]['clicks']")" "$c0" || f=1
+    click 960 $MID; sleep 0.3
+    check "a click on the span reaches the overlay" "$(state "d['overlays'][0]['clicks']")" $((c0 + 1)) || f=1
+    check "and not the bar's clock under it (no seconds)" "$(state "$(bar1)['clock']['seconds']")" False || f=1
+    n swaymsg -q workspace 2
+    urgent_again
+    reset_notifs
+    return $f
+}
+
+# Handoff (SPEC section 2, spike S7 method): the first and the last overlay
+# frames are the idle bar, pixel for pixel. The view holds at both frames.
+case_HO() {
+    local f=0 attempt m0 m1 phase1 mapped idle first last after id
+    prepare
+    reset_notifs
+    for attempt in 1 2 3; do
+        m0=$(date +%H:%M)
+        ipc debug noteHold true
+        idle=$(shot HO idle)
+        id=$(send -t 1500 "Handoff check" "first and last frame")
+        sleep 0.6
+        phase1=$(view "(v['phase'], v['c'], v['w'], d['overlays'][0]['visible'])")
+        first=$(shot HO first)
+        ipc debug noteRelease
+        for _ in $(seq 40); do [ "$(view "v['phase']")" = last ] && break; sleep 0.1; done
+        mapped=$(view "(v['phase'], v['c'], v['w'], d['overlays'][0]['visible'])")
+        last=$(shot HO last)
+        ipc debug noteRelease
+        wait_unmapped
+        after=$(shot HO after)
+        ipc debug noteHold false
+        m1=$(date +%H:%M)
+        [ "$m0" = "$m1" ] && break
+        echo "  note: the minute changed during attempt $attempt, again"
+    done
+    check "held at the first frame, overlay mapped" "$phase1" "('first', 0, 0, True)" || f=1
+    check "first overlay frame against the idle bar" "$(pixdiff "$idle" "$first")" "identical: 0 of 9216000 pixels differ" || f=1
+    check "held at the last frame, overlay still mapped" "$mapped" "('last', 0, 0, True)" || f=1
+    check "last overlay frame against the idle bar" "$(pixdiff "$idle" "$last")" "identical: 0 of 9216000 pixels differ" || f=1
+    check "after the unmap against the idle bar" "$(pixdiff "$idle" "$after")" "identical: 0 of 9216000 pixels differ" || f=1
+    check "overlay unmapped" "$(overlay_mapped)" False || f=1
+    reset_notifs
+    return $f
+}
+
+# Note width (SPEC section 3): the mode name shows in full unless a note
+# would get less than 600 px, then it elides, and it comes back in full.
+case_NW() {
+    local f=0 s x w full span
+    prepare
+    reset_notifs
+    scene present; sleep 0.3
+    send -t 30000 "Width check" "beside the present mode" > /dev/null
+    sleep 1
+    s=$(shot NW present)
+    read -r x w full <<< "$(state "' '.join(str(round($(bar1)['mode'][k])) for k in ('x', 'width', 'full'))")"
+    check "present mode: not elided" "$(state "$(bar1)['mode']['elided']")" False || f=1
+    check "present mode: label at full width" "$w" "$full" || f=1
+    check "present mode: span starts 8 px after the label" "$(view "v['span']['x']")" $((x + w + 8)) || f=1
+    more "present mode: span width" "$(view "int(v['span']['width'])")" 600 || f=1
+    reset_notifs
+    scene long; sleep 0.3
+    full=$(state "round($(bar1)['mode']['full'])")
+    more "long mode: full label wider than the room left for a 600 px note" "$((142 + full + 8 + 600 + 8))" 1868 || f=1
+    shot NW long-idle > /dev/null
+    send -t 30000 "Width check" "beside a mode name that has to elide" > /dev/null
+    sleep 1
+    s=$(shot NW long)
+    read -r x w <<< "$(state "' '.join(str(round($(bar1)['mode'][k])) for k in ('x', 'width'))")"
+    span=$(view "int(v['span']['width'])")
+    check "long mode: elided" "$(state "$(bar1)['mode']['elided']")" True || f=1
+    more "long mode: span width" "$span" 600 || f=1
+    check "long mode: span starts 8 px after the elided label" "$(view "v['span']['x']")" $((x + w + 8)) || f=1
+    # The bar's clock box covers the label from 889 to 1031, as when idle.
+    check "long mode: label box on screen ends at the elided width" "$(px "$s" run 1100 $TOP | cut -d' ' -f2)" $((x + w)) || f=1
+    check "long mode: note background up to the span's end" "$(px "$s" color 1750 1179)" "$(palette base01)" || f=1
+    reset_notifs
+    sleep 0.2
+    check "long mode: back in full after the note" "$(state "(round($(bar1)['mode']['width']), $(bar1)['mode']['elided'])")" "($full, False)" || f=1
+    scene mode default
+    return $f
+}
+
+# Idle cost (docs/PLAN.md M4): the bar's Quickshell process near 0 % CPU.
+case_CPU() {
+    local f=0 pid log samples avg
+    prepare
+    reset_notifs
+    scene tray 1 Active
+    scene tray 2 Active
+    [ "$(state "$(bar1)['clock']['seconds']")" = True ] && { click 960 $MID; scene hover 960 600; }
+    sleep 2
+    pid=$(ps -eo pid=,args= | awk -v want="quickshell -p $REPO" '{ p = $1; $1 = ""; sub(/^ /, ""); if ($0 == want) print p }')
+    check "one bar process" "$(wc -w <<< "$pid")" 1 || return 1
+    mkdir -p "$T/logs/m4"
+    log=$T/logs/m4/cpu-idle.log
+    top -b -n 5 -d 1 -p "$pid" > "$log"
+    # The first sample counts from the process start: the last four count.
+    samples=$(awk -v pid="$pid" '$1 == pid { print $9 }' "$log" | tail -n 4 | tr '\n' ' ')
+    avg=$(python3 -c "import sys; v = [float(x.replace(',', '.')) for x in sys.argv[1].split()]; print(f'{sum(v) / len(v):.2f}')" "$samples")
+    echo "  top samples (% CPU, pid $pid): $samples-> average $avg (log: $log)"
+    check "idle CPU near 0 % (average under 1 %)" "$(python3 -c "print($avg < 1.0)")" True || f=1
+    return $f
+}
+
+# N16: idle after all cases. The screenshot before the first case is taken
+# by the loop at the bottom. A few notes run first, so the case means
+# something on its own too. The clock digits are left out: the minute
+# changes during a full run.
+case_N16() {
+    local f=0 before after
+    prepare
+    reset_notifs
+    before=$T/shots/N16/before.png
+    [ -e "$before" ] || before_shot
+    send -t 800 "Idle check" "one" > /dev/null
+    send -t 800 "Idle check" "two" > /dev/null
+    send -u critical -a demo-app "Idle check" "critical" > /dev/null
+    sleep 1.5
+    ipc notify dismiss
+    sleep 3
+    reset_notifs
+    urgent_again
+    sleep 0.3
+    after=$(shot N16 after)
+    check "overlay unmapped" "$(overlay_mapped)" False || f=1
+    check "idle bar against the one before the cases (clock digits left out)" "$(pixdiff "$before" "$after" --ignore $CLOCK_BOX)" "identical: 0 of 9216000 pixels differ" || f=1
+    check "clock box unchanged" "$(px "$after" run 890 $TOP)" "$(px "$before" run 890 $TOP)" || f=1
+    return $f
+}
+
+before_shot() {
+    prepare
+    reset_notifs
+    urgent_again
+    sleep 0.3
+    shot N16 before > /dev/null
 }
 
 # Paths outside the SPEC matrix where a notification could get stuck or
@@ -568,15 +884,22 @@ case_END() {
     local f=0
     reset_notifs
     check "tracked notifications after dismissAll" "$(notif "d['tracked']")" 0 || f=1
+    wait_unmapped
     check "overlay unmapped" "$(overlay_mapped)" False || f=1
     return $f
 }
 
 "$REPO/tests/nested.sh" status || { echo "matrix: no nested session, run: make nested" >&2; exit 1; }
 
-cases="$(declare -F | sed -n 's/^declare -f case_//p' | grep -vx END | sort -V) END"
+cases="$(declare -F | sed -n 's/^declare -f case_//p' | grep -vx -e END -e N16 | sort -V) N16 END"
 [ $# -gt 0 ] && wanted=$* || wanted=$cases
 [ -n "$wanted" ] || { echo "matrix: no case implemented yet" >&2; exit 1; }
+
+# N16 compares the idle bar after the cases with this one.
+rm -f "$T/shots/N16/before.png"
+if grep -qw N16 <<< "$wanted"; then
+    before_shot
+fi
 
 failed=0
 for id in $wanted; do

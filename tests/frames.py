@@ -10,6 +10,10 @@ t * SLOW ms of real time. Each grab starts on its own (grim -l 0 on the
 strip only), so a slow grab does not delay the next one. The real start
 time of every grab is recorded, and the frames are stacked into
 OUT_DIR/LABEL-series.png with their nominal and measured times.
+
+Time 0 is the start of this script, or FRAMES_T0 (seconds since the epoch,
+as `date +%s.%N` prints it) for an animation that starts later on its own,
+such as the roll when a note times out.
 """
 import os
 import subprocess
@@ -31,6 +35,8 @@ times = [float(t) for t in rest]
 os.makedirs(out_dir, exist_ok=True)
 
 t0 = time.monotonic()
+if os.environ.get("FRAMES_T0"):
+    t0 += float(os.environ["FRAMES_T0"]) - time.time()
 if command:
     subprocess.Popen([NESTED, "run"] + command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

@@ -91,6 +91,8 @@ ShellRoot {
                                 seconds: b.clock.showSeconds,
                                 calendar: b.clock.calendarShown
                             },
+                            leftEnd: b.leftEnd,
+                            trayStart: b.trayStart,
                             mode: {
                                 x: b.mode.x,
                                 width: b.mode.width,

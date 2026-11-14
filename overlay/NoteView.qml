@@ -300,6 +300,17 @@ Item {
         }
     }
 
+    // A running animation keeps the durations it started with: restart the
+    // looping ones when the slow-motion factor changes (frame series).
+    Connections {
+        target: Motion
+        function onSlowChanged(): void {
+            if (pulseAnim.running)
+                pulseAnim.restart();
+            root.front.restartMarquee();
+        }
+    }
+
     Component.onCompleted: sync()
 
     // ---- animations ----
@@ -633,13 +644,15 @@ Item {
         height: Theme.barHeight
         visible: snap !== null
 
-        // New text: back to the start, and the hold starts again.
-        onSnapChanged: {
+        function restartMarquee(): void {
             offset = 0;
             row.opacity = 1;
             if (marquee.running)
                 marquee.restart();
         }
+
+        // New text: back to the start, and the hold starts again.
+        onSnapChanged: restartMarquee()
 
         Row {
             id: row
