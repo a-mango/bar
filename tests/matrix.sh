@@ -6,7 +6,7 @@
 #
 # Each case is a shell function named case_<ID>. It saves screenshots to
 # .test/shots/<ID>/ and returns non-zero on failure. M2 added B1 to B6,
-# M1 adds the N cases. The B cases set up tests/scene.sh once per session.
+# M1 adds the N cases, NX (paths outside the SPEC matrix), SC and END. The B cases set up tests/scene.sh once per session.
 set -euo pipefail
 REPO=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
 T=$REPO/.test
@@ -459,11 +459,83 @@ case_N18() {
     return $f
 }
 
+# Paths outside the SPEC matrix where a notification could get stuck or
+# lose its place: resident actions, updates of waiting and hidden
+# notifications, and dismissAll.
+case_NX() {
+    local f=0 r a b c x y z h order log ta tb
+    reset_notifs
+    bus_start NX
+
+    echo "  resident: the action does not close it, its timer does"
+    # Through gdbus: notify-send closes its notification once an action came.
+    r=$(n gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+        --method org.freedesktop.Notifications.Notify demo-app 0 "" "Resident note" "stays after its action" \
+        "['open', 'Open']" "{'resident': <true>}" 3000 | sed 's/.*uint32 \([0-9]*\).*/\1/')
+    sleep 1
+    ipc notify invoke open
+    sleep 0.5
+    check "still on display after its action" "$(notif "d['current']['id']")" "$r" || f=1
+    sleep 2
+
+    echo "  replaces_id on a waiting note: new timeout, then critical"
+    a=$(send "Front note" "on display first")
+    b=$(send "Waiting note" "second in line")
+    c=$(send "Last note" "third in line")
+    send -r "$b" -t 1500 "Waiting note, updated" "shorter timeout" > /dev/null
+    sleep 0.3
+    check "still waiting after the update" "$(notif "(d['current']['id'], d['waiting'])")" "($a, [$b, $c])" || f=1
+    send -r "$c" -u critical "Last note, now critical" "takes the span" > /dev/null
+    sleep 0.3
+    check "the critical one takes the span, the front note waits again" "$(notif "(d['current']['id'], d['kind'], d['waiting'])")" "($c, 'critical', [$a, $b])" || f=1
+    ipc notify dismiss
+    sleep 0.3
+    check "front note back on display" "$(notif "d['current']['id']")" "$a" || f=1
+    sleep 6.5
+
+    echo "  dismissAll: the queue first, then the note on display"
+    x=$(send "Dismiss one" "on display")
+    y=$(send "Dismiss two" "waiting")
+    z=$(send "Dismiss three" "waiting")
+    sleep 0.3
+    ipc notify dismissAll
+    sleep 0.3
+    check "nothing left" "$(notif "(d['visible'], d['queued'], d['tracked'])")" "(False, 0, 0)" || f=1
+
+    echo "  replaces_id on a hidden critical after DND went off"
+    ipc notify setDnd true
+    h=$(send -u critical -a demo-app "Hidden critical" "sent during DND")
+    sleep 1
+    ipc notify setDnd false
+    send -r "$h" -u critical -a demo-app "Hidden critical, updated" "after DND" > /dev/null
+    sleep 0.5
+    check "still hidden after the update" "$(notif "(d['visible'], d['hidden'])")" "(False, 1)" || f=1
+    sleep 5
+    bus_stop
+
+    log=$("$REPO/tests/buslog.py" "$BUSLOG")
+    check "resident: ActionInvoked open" "$(grep -c "id=$r key='open'" <<< "$log")" 1 || f=1
+    closed_check "resident note (sender timeout 3 s)" "$r" "Resident note" 1 3.0 || f=1
+    check "critical dismissed" "$(closed "$c" "Front note" | cut -d' ' -f1)" 2 || f=1
+    read -r _ ta <<< "$(closed "$a" "Front note")"
+    read -r _ tb <<< "$(closed "$b" "Front note")"
+    check "updated waiting note: NotificationClosed reason" "$(closed "$b" "Front note" | cut -d' ' -f1)" 1 || f=1
+    within "updated waiting note: on display for its new timeout" "$(python3 -c "print(f'{$tb - $ta:.2f}')")" 1.5 || f=1
+    order=$(grep '^closed' <<< "$log" | grep -E "id=($x|$y|$z) " | sed 's/.*id=\([0-9]*\) reason=\([0-9]\)/\1:\2/' | tr '\n' ' ')
+    check "dismissAll order and reasons" "$order" "$y:2 $z:2 $x:2 " || f=1
+    closed_check "hidden critical, from its update" "$h" "Hidden critical, updated" 1 5.0 || f=1
+    reset_notifs
+    return $f
+}
+
 # The screenshot.sh contract (docs/PLAN.md M1): discard through IPC, then a
 # run that times out.
 case_SC() {
     local f=0 out1 out2 p1 p2 id
     reset_notifs
+    check "GetCapabilities (SPEC section 12)" "$(n gdbus call --session --dest org.freedesktop.Notifications \
+        --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.GetCapabilities)" \
+        "(['body', 'body-markup', 'actions', 'icon-static'],)" || f=1
     bus_start SC
     out1=$T/logs/SC-discard.out
     n "$REPO/tests/fake-screenshot.sh" > "$out1" 2>&1 &

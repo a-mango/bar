@@ -66,11 +66,11 @@ Singleton {
     }
 
     function accept(n: var): void {
-        const e = entry(n, snapshot(n), classify(n));
-        e.tag = String(n.hints["x-canonical-private-synchronous"] ?? "");
+        const e = entry(n, snapshot(n), classify(n, root.dnd));
+        e.tag = tagOf(n);
         e.restored = n.lastGeneration;
         n.closed.connect(reason => root.onClosed(e, reason));
-        for (const change of [n.summaryChanged, n.bodyChanged, n.expireTimeoutChanged, n.hintsChanged])
+        for (const change of [n.summaryChanged, n.bodyChanged, n.expireTimeoutChanged, n.hintsChanged, n.urgencyChanged])
             change.connect(() => root.updated(e));
 
         if (e.cls.hidden) {
@@ -125,7 +125,7 @@ Singleton {
         hide(e);
     }
 
-    function classify(n: var): var {
+    function classify(n: var, dnd: bool): var {
         return Rules.classify({
             appName: n.appName,
             urgency: n.urgency,
@@ -134,8 +134,12 @@ Singleton {
             image: n.image,
             appIcon: n.appIcon
         }, {
-            dnd: root.dnd
+            dnd: dnd
         });
+    }
+
+    function tagOf(n: var): string {
+        return String(n.hints["x-canonical-private-synchronous"] ?? "");
     }
 
     function snapshot(n: var): var {
@@ -232,25 +236,46 @@ Singleton {
 
     // ---- updates and closing ------------------------------------------
 
-    // replaces_id update: the server changed the object in place.
+    // replaces_id update: the server changed the object in place. The entry
+    // stays where it is (hidden, waiting or on display) and its time starts
+    // again. The rules are read again, since the urgency may have changed.
     function updated(e: var): void {
         if (e.closed || !e.n)
             return;
         e.data = Object.assign(snapshot(e.n), {
             time: e.data.time
         });
-        const kind = e.cls.kind;
-        e.cls = Object.assign(classify(e.n), {
-            kind: kind
-        });
-        if (e === current || e === osd) {
-            e.remaining = e.cls.timeout > 0 ? e.cls.timeout : Infinity;
+        e.tag = tagOf(e.n);
+        const was = e.cls.kind;
+        const cls = classify(e.n, false);
+        // An update does not move an entry between the OSD and the note slot.
+        if ((was === "osd") !== (cls.kind === "osd"))
+            cls.kind = was;
+        if (hidden.includes(e)) {
+            // Still never drawn, whatever DND says by now: 5 s from here.
+            e.cls = Object.assign(cls, {
+                hidden: true,
+                timeout: Rules.DND_TIMEOUT
+            });
+            e.deadline = Date.now() + Rules.DND_TIMEOUT;
+        } else {
+            e.cls = cls;
+            e.remaining = cls.timeout > 0 ? cls.timeout : Infinity;
             if (e.running) {
                 e.running = false;
                 run(e);
             }
-        } else if (hidden.includes(e)) {
-            e.deadline = Date.now() + e.cls.timeout;
+            if (queue.includes(e)) {
+                if (cls.kind !== "critical") {
+                    // Only a critical waits without a limit.
+                    if (e.waitUntil === null)
+                        e.waitUntil = Date.now() + queueLimit;
+                } else if (was !== "critical") {
+                    // A waiting note turned critical takes the span.
+                    queue = queue.filter(q => q !== e);
+                    enqueue(e);
+                }
+            }
         }
         revision += 1;
         reschedule();
