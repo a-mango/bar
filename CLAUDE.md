@@ -9,7 +9,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - `tests/nested.sh run <command>`: run a command inside the nested session (`env -i`, nested display and bus). `tests/nested.sh click <x> <y> [button]` clicks at logical coordinates.
 - `tests/scene.sh setup`: workspaces 1, 2, 3 and `4:demo`, urgent 3, two fake tray items, once per session. Then `mode`, `present`, `focus-other`, `focus-main`, `hover`, `tray <n> <status>`.
 - `make reference`: nested session running waybar with `docs/reference/waybar/`, screenshot of its bar (visual target)
-- `make matrix`: run the `docs/SPEC.md` test matrix against the nested session. `make matrix CASE=N5` runs one case.
+- `make matrix`: run the `docs/SPEC.md` test matrix against the nested session (about 4 minutes). `make matrix CASE=N5` runs one case, `CASE="N13 N18"` several.
 - `make shots`: screenshot the nested output into `.test/shots/`
 - `make log`: follow the nested Quickshell log
 - `make test`: `node --test tests/*.test.mjs` (unit tests for `services/Rules.js`)
@@ -47,6 +47,11 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - `replaces_id` updates emit no new `notification` signal. Bind to the properties and listen to their change signals.
 - The OSD senders never pass `replaces_id`. They replace through the `x-canonical-private-synchronous` hint, which arrives in `hints` with `value`.
 - The server has no expiry timers. All timeouts are QML `Timer`s.
+- QML timers are coarse (Qt allows 5 % error, 250 ms on 5 s). The scheduler in `services/Notifs.qml` wakes at 90 % of the wait and arms again. Do not add a plain `Timer` for a deadline that a test measures.
+- `expireTimeout` arrives in milliseconds as sent (800, -1, 0). `urgency` arrives as 0, 1 or 2 (`Rules.LOW`, `NORMAL`, `CRITICAL`).
+- `notify-send -i <file>` arrives as `image` = `image://icon/<path>`, not as `appIcon`.
+- `expire()`, `dismiss()` and `invoke()` emit `closed` before they return, and the object is deleted right after. Put the queue state in order before closing, and never keep `e.n` past `onClosed`.
+- `notify-send -A` calls `CloseNotification` after an action. Test a `resident` notification through `gdbus call ... Notify`.
 - `dbus-run-session` with the default config would activate mako from `/usr/share/dbus-1/services` on the first notification. `tests/session.conf` lists no service directories.
 - At login, `wait-sni-ready` gives the tray watcher 25 s. `bar.service` must be enabled under `sway-session.target`, not only D-Bus-activated.
 - darkman runs every executable file in `~/.local/share/darkman/`, whatever its extension: disable a hook with `chmod -x`, not a rename. It runs as a user service that may lack `WAYLAND_DISPLAY`, so its hook calls `quickshell ipc --any-display`.

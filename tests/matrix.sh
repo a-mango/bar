@@ -6,7 +6,8 @@
 #
 # Each case is a shell function named case_<ID>. It saves screenshots to
 # .test/shots/<ID>/ and returns non-zero on failure. M2 added B1 to B6,
-# M1 adds the N cases. The B cases set up tests/scene.sh once per session.
+# M1 adds the N cases, NX (paths outside the SPEC matrix), SC and END.
+# The B cases set up tests/scene.sh once per session.
 set -euo pipefail
 REPO=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
 T=$REPO/.test
@@ -198,9 +199,382 @@ case_B6() {
     check "wait-sni-ready (the script exits 0 on failure too)" "$(grep -c 'Successfully waited for org.kde.StatusNotifierHost' <<< "$out")" 1
 }
 
+# ---- notifications (M1) ----------------------------------------------
+
+# Bus log of the case: every Notify, CloseNotification, NotificationClosed
+# and ActionInvoked on the private bus, with dbus-monitor's timestamps.
+bus_start() {
+    BUSLOG=$T/logs/bus-$1.log
+    "$REPO/tests/nested.sh" run dbus-monitor --session "interface='org.freedesktop.Notifications'" > "$BUSLOG" 2>&1 &
+    BUSPID=$!
+    sleep 0.5
+}
+bus_stop() {
+    sleep 0.2
+    kill "$BUSPID" 2>/dev/null || true
+    wait "$BUSPID" 2>/dev/null || true
+}
+# closed <id> <summary>: "<reason> <seconds since the Notify with that summary>"
+closed() { "$REPO/tests/buslog.py" "$BUSLOG" closed "$1" "$2"; }
+# within <what> <actual> <expected> [tolerance]: seconds within tolerance (0.3 s).
+within() {
+    if python3 -c 'import sys; sys.exit(0 if abs(float(sys.argv[1]) - float(sys.argv[2])) <= float(sys.argv[3]) else 1)' "${2:-nan}" "$3" "${4:-0.3}" 2> /dev/null; then
+        echo "  ok    $1: $2 s (expected $3 ± ${4:-0.3})"
+    else
+        echo "  FAIL  $1: '$2' s, expected $3 ± ${4:-0.3}"
+        return 1
+    fi
+}
+# One field of `call notify status`, as a Python expression on `d`.
+notif() { ipc notify status | python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
+send() { n notify-send -p "$@"; }
+overlay_mapped() { state "d['overlays'][0]['visible']"; }
+# Every case starts and ends with nothing on display and DND off.
+reset_notifs() {
+    ipc notify dismissAll
+    ipc notify setDnd false
+    for _ in $(seq 70); do
+        [ "$(notif "d['tracked']")" = 0 ] && return 0
+        sleep 0.1
+    done
+    echo "  note: $(notif "d['tracked']") notification(s) still tracked after the reset"
+}
+# closed_check <what> <id> <summary> <reason> <seconds> [tolerance]
+closed_check() {
+    local r t
+    read -r r t <<< "$(closed "$2" "$3")"
+    check "$1: NotificationClosed reason" "$r" "$4" && within "$1: closed after" "$t" "$5" "${6:-0.3}"
+}
+
+case_N1() {
+    local f=0 id
+    reset_notifs
+    bus_start N1
+    id=$(send "Build finished" "demo-app compiled in 42 s")
+    sleep 0.5
+    shot N1 visible > /dev/null
+    check "on display" "$(notif "d['current']['summary']")" "Build finished" || f=1
+    check "kind" "$(notif "d['kind']")" note || f=1
+    check "overlay mapped" "$(overlay_mapped)" True || f=1
+    sleep 5
+    bus_stop
+    closed_check "note" "$id" "Build finished" 1 5.0 || f=1
+    check "overlay unmapped afterwards" "$(overlay_mapped)" False || f=1
+    reset_notifs
+    return $f
+}
+
+case_N3() {
+    local f=0 a b c
+    reset_notifs
+    bus_start N3
+    a=$(send "Note one" "first of three"); sleep 0.1
+    b=$(send "Note two" "second of three"); sleep 0.1
+    c=$(send "Note three" "third of three")
+    sleep 0.4
+    shot N3 first > /dev/null
+    check "first on display" "$(notif "d['current']['summary']")" "Note one" || f=1
+    check "waiting (+2)" "$(notif "d['queued']")" 2 || f=1
+    sleep 5
+    shot N3 second > /dev/null
+    check "second on display after the first leaves" "$(notif "d['current']['summary']")" "Note two" || f=1
+    check "waiting (+1)" "$(notif "d['queued']")" 1 || f=1
+    sleep 10.5
+    bus_stop
+    closed_check "first, from its arrival" "$a" "Note one" 1 5.0 || f=1
+    closed_check "second, from the first arrival" "$b" "Note one" 1 10.0 || f=1
+    closed_check "third, from the first arrival" "$c" "Note one" 1 15.0 || f=1
+    reset_notifs
+    return $f
+}
+
+case_N5() {
+    local f=0 v ids=()
+    reset_notifs
+    bus_start N5
+    for v in 10 20 30 40 50; do
+        ids+=("$(send -a volume -t 800 -e -h int:value:$v -h string:x-canonical-private-synchronous:volume "Volume: $v%")")
+        [ "$v" = 50 ] || sleep 0.1
+    done
+    # The last OSD lives 800 ms: read everything at once, right away.
+    local st
+    st=$(ipc debug state)
+    py() { python3 -c "import json,sys; d=json.loads(sys.argv[1]); print($1)" "$st"; }
+    shot N5 osd > /dev/null
+    check "kind on display" "$(py "d['notifs']['kind']")" osd || f=1
+    check "OSD value" "$(py "d['notifs']['osd']['value']")" 50 || f=1
+    check "OSD id (the last one)" "$(py "d['notifs']['osd']['id']")" "${ids[4]}" || f=1
+    check "nothing queued, no note" "$(py "(d['notifs']['queued'], d['notifs']['note'])")" "(0, None)" || f=1
+    # The M1 debug view maps on every output. M6 picks the focused one.
+    check "overlay mapped on HEADLESS-1" "$(py "[o['visible'] for o in d['overlays'] if o['screen'] == 'HEADLESS-1']")" "[True]" || f=1
+    sleep 1.2
+    bus_stop
+    for v in 0 1 2 3; do
+        closed_check "OSD $((v + 1)) replaced by the next" "${ids[$v]}" "Volume: $((v * 10 + 20))%" 1 0.0 0.2 || f=1
+    done
+    closed_check "last OSD (sender timeout 800 ms)" "${ids[4]}" "Volume: 50%" 1 0.8 || f=1
+    reset_notifs
+    return $f
+}
+
+case_N8() {
+    local f=0 id h0
+    reset_notifs
+    ipc notify setDnd true
+    h0=$(notif "d['history']")
+    bus_start N8
+    id=$(send "Quiet note" "sent during DND")
+    sleep 0.5
+    shot N8 dnd > /dev/null
+    check "nothing on display" "$(notif "d['visible']")" False || f=1
+    check "overlay unmapped" "$(overlay_mapped)" False || f=1
+    check "hidden" "$(notif "d['hidden']")" 1 || f=1
+    sleep 5
+    bus_stop
+    closed_check "hidden note" "$id" "Quiet note" 1 5.0 || f=1
+    check "history grew by one" "$(notif "d['history']")" $((h0 + 1)) || f=1
+    reset_notifs
+    return $f
+}
+
+case_N9() {
+    local f=0 id
+    reset_notifs
+    bus_start N9
+    id=$(send "Closing early" "the sender closes it")
+    sleep 1
+    n gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+        --method org.freedesktop.Notifications.CloseNotification "$id" > /dev/null
+    sleep 0.5
+    bus_stop
+    closed_check "CloseNotification" "$id" "Closing early" 3 1.0 0.4 || f=1
+    check "nothing on display" "$(notif "d['visible']")" False || f=1
+    reset_notifs
+    return $f
+}
+
+case_N10() {
+    local f=0 id id2
+    reset_notifs
+    bus_start N10
+    id=$(send "First text" "before the update")
+    sleep 2
+    id2=$(send -r "$id" "Second text" "after the update")
+    sleep 0.3
+    shot N10 updated > /dev/null
+    check "same id after notify-send -r" "$id2" "$id" || f=1
+    check "text changed in place" "$(notif "(d['current']['id'], d['current']['summary'])")" "($id, 'Second text')" || f=1
+    sleep 5.5
+    bus_stop
+    closed_check "timer restarted by the update" "$id" "Second text" 1 5.0 || f=1
+    check "closed once" "$("$REPO/tests/buslog.py" "$BUSLOG" count "$id")" 1 || f=1
+    reset_notifs
+    return $f
+}
+
+case_N11() {
+    local f=0 id
+    reset_notifs
+    bus_start N11
+    id=$(send "Survivor" "kept across a reload")
+    sleep 1
+    touch "$REPO/shell.qml"
+    sleep 2
+    shot N11 after-reload > /dev/null
+    check "still on display after the reload" "$(notif "d['current']['id']")" "$id" || f=1
+    check "marked as a survivor (no second entry animation)" "$(notif "d['note']['restored']")" True || f=1
+    sleep 5
+    bus_stop
+    # Timer restarted at the reload: about 1 s + reload + 5 s, not 5 s.
+    closed_check "survivor" "$id" "Survivor" 1 6.4 0.9 || f=1
+    reset_notifs
+    return $f
+}
+
+case_N13() {
+    local f=0 cid out apid aid
+    reset_notifs
+    bus_start N13
+    cid=$(send -u critical -a demo-app "Disk check" "fictional critical, stays")
+    sleep 0.5
+    out=$T/logs/N13-notify-send.out
+    n notify-send -p -A discard=Discard -a demo-app "Queued action" "waits behind the critical" > "$out" 2>&1 &
+    apid=$!
+    sleep 0.5
+    shot N13 queued > /dev/null
+    check "critical on display" "$(notif "d['current']['summary']")" "Disk check" || f=1
+    check "action note waiting" "$(notif "d['queued']")" 1 || f=1
+    for _ in $(seq 320); do kill -0 "$apid" 2> /dev/null || break; sleep 0.1; done
+    if kill -0 "$apid" 2> /dev/null; then
+        echo "  FAIL  notify-send -A still running after 32 s"; f=1; kill "$apid"
+    else
+        echo "  ok    notify-send -A exited"
+    fi
+    wait "$apid" 2> /dev/null || true
+    aid=$(head -n 1 "$out")
+    check "notify-send printed no action (only its id)" "$(wc -l < "$out")" 1 || f=1
+    check "critical still on display" "$(notif "d['current']['id']")" "$cid" || f=1
+    bus_stop
+    closed_check "queued note (30 s limit)" "$aid" "Queued action" 1 30.0 0.5 || f=1
+    reset_notifs
+    return $f
+}
+
+case_N14() {
+    local f=0 id
+    reset_notifs
+    ipc notify setDnd true
+    bus_start N14
+    id=$(send -u critical -a demo-app "Disk almost full" "fictional test")
+    sleep 0.5
+    check "nothing on display" "$(notif "d['visible']")" False || f=1
+    check "overlay unmapped" "$(overlay_mapped)" False || f=1
+    sleep 5
+    bus_stop
+    closed_check "hidden critical" "$id" "Disk almost full" 1 5.0 || f=1
+    reset_notifs
+    return $f
+}
+
+case_N18() {
+    local f=0 a b
+    reset_notifs
+    bus_start N18
+    a=$(send -u critical -a battery-appindicator "Battery low" "20% remaining")
+    sleep 1
+    b=$(send -u critical -a battery-appindicator "Battery very low" "5% remaining")
+    echo "  waiting 60 s"
+    sleep 60
+    shot N18 after-60s > /dev/null
+    check "both still tracked" "$(notif "d['tracked']")" 2 || f=1
+    check "newer on display" "$(notif "d['current']['summary']")" "Battery very low" || f=1
+    check "older waiting (+1)" "$(notif "d['queued']")" 1 || f=1
+    check "no NotificationClosed yet" "$("$REPO/tests/buslog.py" "$BUSLOG" count "$a")$("$REPO/tests/buslog.py" "$BUSLOG" count "$b")" 00 || f=1
+    ipc notify dismiss
+    sleep 0.3
+    check "older on display after dismissing the newer" "$(notif "d['current']['summary']")" "Battery low" || f=1
+    ipc notify dismiss
+    bus_stop
+    check "newer closed as dismissed" "$(closed "$b" "Battery very low" | cut -d' ' -f1)" 2 || f=1
+    check "older closed as dismissed" "$(closed "$a" "Battery low" | cut -d' ' -f1)" 2 || f=1
+    reset_notifs
+    return $f
+}
+
+# Paths outside the SPEC matrix where a notification could get stuck or
+# lose its place: resident actions, updates of waiting and hidden
+# notifications, and dismissAll.
+case_NX() {
+    local f=0 r a b c x y z h order log ta tb
+    reset_notifs
+    bus_start NX
+
+    echo "  resident: the action does not close it, its timer does"
+    # Through gdbus: notify-send closes its notification once an action came.
+    r=$(n gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+        --method org.freedesktop.Notifications.Notify demo-app 0 "" "Resident note" "stays after its action" \
+        "['open', 'Open']" "{'resident': <true>}" 3000 | sed 's/.*uint32 \([0-9]*\).*/\1/')
+    sleep 1
+    ipc notify invoke open
+    sleep 0.5
+    check "still on display after its action" "$(notif "d['current']['id']")" "$r" || f=1
+    sleep 2
+
+    echo "  replaces_id on a waiting note: new timeout, then critical"
+    a=$(send "Front note" "on display first")
+    b=$(send "Waiting note" "second in line")
+    c=$(send "Last note" "third in line")
+    send -r "$b" -t 1500 "Waiting note, updated" "shorter timeout" > /dev/null
+    sleep 0.3
+    check "still waiting after the update" "$(notif "(d['current']['id'], d['waiting'])")" "($a, [$b, $c])" || f=1
+    send -r "$c" -u critical "Last note, now critical" "takes the span" > /dev/null
+    sleep 0.3
+    check "the critical one takes the span, the front note waits again" "$(notif "(d['current']['id'], d['kind'], d['waiting'])")" "($c, 'critical', [$a, $b])" || f=1
+    ipc notify dismiss
+    sleep 0.3
+    check "front note back on display" "$(notif "d['current']['id']")" "$a" || f=1
+    sleep 6.5
+
+    echo "  dismissAll: the queue first, then the note on display"
+    x=$(send "Dismiss one" "on display")
+    y=$(send "Dismiss two" "waiting")
+    z=$(send "Dismiss three" "waiting")
+    sleep 0.3
+    ipc notify dismissAll
+    sleep 0.3
+    check "nothing left" "$(notif "(d['visible'], d['queued'], d['tracked'])")" "(False, 0, 0)" || f=1
+
+    echo "  replaces_id on a hidden critical after DND went off"
+    ipc notify setDnd true
+    h=$(send -u critical -a demo-app "Hidden critical" "sent during DND")
+    sleep 1
+    ipc notify setDnd false
+    send -r "$h" -u critical -a demo-app "Hidden critical, updated" "after DND" > /dev/null
+    sleep 0.5
+    check "still hidden after the update" "$(notif "(d['visible'], d['hidden'])")" "(False, 1)" || f=1
+    sleep 5
+    bus_stop
+
+    log=$("$REPO/tests/buslog.py" "$BUSLOG")
+    check "resident: ActionInvoked open" "$(grep -c "id=$r key='open'" <<< "$log")" 1 || f=1
+    closed_check "resident note (sender timeout 3 s)" "$r" "Resident note" 1 3.0 || f=1
+    check "critical dismissed" "$(closed "$c" "Front note" | cut -d' ' -f1)" 2 || f=1
+    read -r _ ta <<< "$(closed "$a" "Front note")"
+    read -r _ tb <<< "$(closed "$b" "Front note")"
+    check "updated waiting note: NotificationClosed reason" "$(closed "$b" "Front note" | cut -d' ' -f1)" 1 || f=1
+    within "updated waiting note: on display for its new timeout" "$(python3 -c "print(f'{$tb - $ta:.2f}')")" 1.5 || f=1
+    order=$(grep '^closed' <<< "$log" | grep -E "id=($x|$y|$z) " | sed 's/.*id=\([0-9]*\) reason=\([0-9]\)/\1:\2/' | tr '\n' ' ')
+    check "dismissAll order and reasons" "$order" "$y:2 $z:2 $x:2 " || f=1
+    closed_check "hidden critical, from its update" "$h" "Hidden critical, updated" 1 5.0 || f=1
+    reset_notifs
+    return $f
+}
+
+# The screenshot.sh contract (docs/PLAN.md M1): discard through IPC, then a
+# run that times out.
+case_SC() {
+    local f=0 out1 out2 p1 p2 id
+    reset_notifs
+    check "GetCapabilities (SPEC section 12)" "$(n gdbus call --session --dest org.freedesktop.Notifications \
+        --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.GetCapabilities)" \
+        "(['body', 'body-markup', 'actions', 'icon-static'],)" || f=1
+    bus_start SC
+    out1=$T/logs/SC-discard.out
+    n "$REPO/tests/fake-screenshot.sh" > "$out1" 2>&1 &
+    p1=$!
+    sleep 1
+    check "screenshot note on display" "$(notif "(d['current']['app'], d['kind'])")" "('screenshot', 'rich')" || f=1
+    ipc notify invoke discard
+    for _ in $(seq 30); do kill -0 "$p1" 2> /dev/null || break; sleep 0.1; done
+    check "first run exited after invoke" "$(kill -0 "$p1" 2> /dev/null && echo running || echo exited)" exited || f=1
+    check "first run printed" "$(cat "$out1")" discard || f=1
+    out2=$T/logs/SC-timeout.out
+    n "$REPO/tests/fake-screenshot.sh" > "$out2" 2>&1 &
+    p2=$!
+    sleep 1
+    id=$(notif "d['current']['id']")
+    for _ in $(seq 120); do kill -0 "$p2" 2> /dev/null || break; sleep 0.1; done
+    check "second run exited on its own" "$(kill -0 "$p2" 2> /dev/null && echo running || echo exited)" exited || f=1
+    check "second run printed nothing" "$(wc -c < "$out2")" 0 || f=1
+    bus_stop
+    check "ActionInvoked discard on the bus" "$("$REPO/tests/buslog.py" "$BUSLOG" | grep -c "key='discard'")" 1 || f=1
+    closed_check "timed-out screenshot note" "$id" "Screenshot saved" 1 10.0 || f=1
+    reset_notifs
+    return $f
+}
+
+# Runs last when the whole matrix runs: nothing may stay tracked.
+case_END() {
+    local f=0
+    reset_notifs
+    check "tracked notifications after dismissAll" "$(notif "d['tracked']")" 0 || f=1
+    check "overlay unmapped" "$(overlay_mapped)" False || f=1
+    return $f
+}
+
 "$REPO/tests/nested.sh" status || { echo "matrix: no nested session, run: make nested" >&2; exit 1; }
 
-cases=$(declare -F | sed -n 's/^declare -f case_//p')
+cases="$(declare -F | sed -n 's/^declare -f case_//p' | grep -vx END | sort -V) END"
 [ $# -gt 0 ] && wanted=$* || wanted=$cases
 [ -n "$wanted" ] || { echo "matrix: no case implemented yet" >&2; exit 1; }
 

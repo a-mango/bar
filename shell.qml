@@ -13,8 +13,8 @@ import qs.overlay
 ShellRoot {
     id: root
 
-    // Debug state of the overlay until the real views exist (M1 replaces
-    // notify.debugShow, M3 and M4 the overlay content).
+    // Spike modes of the overlay (debug.overlay), "off" for the normal
+    // notification display. M3 and M4 replace the overlay content.
     property string overlayMode: "off"
 
     // Singletons load on first use: name the ones that must run from startup.
@@ -34,15 +34,6 @@ ShellRoot {
 
         Overlay {
             mode: root.overlayMode
-        }
-    }
-
-    IpcHandler {
-        target: "notify"
-
-        // Temporary: shows the solid base0D strip in the overlay.
-        function debugShow(on: bool): void {
-            root.overlayMode = on ? "strip" : "off";
         }
     }
 
@@ -68,6 +59,7 @@ ShellRoot {
                 theme: Theme.mode,
                 mode: Sway.mode,
                 received: Notifs.received,
+                notifs: JSON.parse(Notifs.status()),
                 bars: bars.instances.map(b => ({
                             screen: b.screen.name,
                             workspaces: Sway.workspacesOn(b.screen.name).map(w => w.name),
