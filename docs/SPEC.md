@@ -172,10 +172,11 @@ Note:
 
 OSD (full width):
 
-- **Enter.** The strip fades in over 100 ms while the fill grows from 0 to the value in 180 ms (`Easing.OutCubic`).
+- **Enter.** The strip fades in over 100 ms (linear) while the fill grows from 0 to the value in 180 ms (`Easing.OutCubic`). Both start on the overlay's first frame, about 30 ms after it maps: started earlier, they ticked irregularly while the surface was set up (`PLAN.md` section 8, M3 findings).
 - **Update** (same synchronous tag): the fill width animates to the new value in 120 ms (`Easing.OutQuad`).
-- **Leave.** Fade out over 150 ms, back to the bar (or to the open note span).
-- The label (the summary, for example `Brightness: 40%`) is drawn twice and split at the fill edge with clipping: `base05` over the empty part, `base00` over the filled part. It stays readable at 0 % and at 100 %, which matters for the muted microphone (value 0).
+- **Rapid presses.** A new OSD that finds the strip shown or fading out keeps the same surface: the fill moves to the new value as in an update, and a fading strip fades back in from where it is. The entry runs only when the overlay was idle. An OSD of another app takes the strip the same way, and its fill color changes at once (M3 choice, question Q11).
+- **Leave.** Fade out over 150 ms (linear), back to the bar (or to the open note span). The strip keeps its last label and value while it fades, and the overlay unmaps when the fade ends.
+- The label (the summary, for example `Brightness: 40%`) is centered on the output (M3 choice, Q12). It is drawn twice and split at the fill edge with clipping: `base05` over the empty part, `base00` over the filled part. It stays readable at 0 % and at 100 %, which matters for the muted microphone (value 0). The fill edge snaps to physical pixels, so both copies line up. In light mode, `base00` over the fill has little contrast (question Q10).
 
 Critical: the leading-edge glow pulses between 0.4 and 1.0 opacity with a 1600 ms period while shown.
 
@@ -188,7 +189,7 @@ Cost: no animation runs while idle. The overlay is unmapped, the bar redraws onl
 - Overlay clicks land only on drawn content. Everything else reaches the bar.
 - Note clicks follow the rules table. A middle click dismisses the current notification and the whole queue.
 - Hovering a note pauses its timer and its marquee. Leaving resumes both.
-- An OSD covers the whole bar for up to 2 s. A click on it dismisses it.
+- An OSD covers the whole bar for up to 2 s. A click on it dismisses it (left or right button, as in the rules table). While it fades out, its input mask is empty, so clicks reach the bar (M3 choice).
 - Tray menus open as popups of the bar window. They are the only part of bar that may need keyboard input. Spike S9 showed that they get none while the bar's keyboard focus is `None`: arrow keys and Escape go to the focused window, and the menu only reacts to the pointer. Switching to `WlrKeyboardFocus.OnDemand` once a menu is open does not help, because sway gives the focus on a click and that click has already happened. What works is `OnDemand` while the pointer is on the tray or a menu is open: the opening click then focuses the bar, and the focus returns to the window when the menu closes. `OnDemand` at all times is ruled out, since the bar would keep the keyboard after any click on it. Whether menus get keyboard input at all is question Q2 in `PLAN.md` section 8. Until it is answered, the bar stays at `None`.
 
 ## 9. Inter-Process Communication (IPC)
@@ -294,8 +295,12 @@ Notifications:
 | N17 | fullscreen test client, a plain note, fullscreen off after 10 s; then the same with 35 s | first run: the note appears after the exit. Second run: nothing appears, the note is in history, reason 1 |
 | N18 | two `-u critical -a battery-appindicator` notes 1 s apart, neither clicked, checked after 60 s | both still tracked, the newer one visible with `+1`, and dismissing it shows the older one |
 
-`tests/matrix.sh` has three more cases:
+N5 and N6 save frame series (`tests/frames.py`: shots at 0, 60, 120, 300 and 900 ms, each stamped with its frame time). N6 also saves palette sheets in both themes and checks that a click dismisses the OSD. B7 covers the OSD part until M5 adds the screenshot note and the held plain note.
+
+`tests/matrix.sh` has five more cases:
 
 - `SC`: `GetCapabilities` and the `screenshot.sh` contract of section 12 through IPC (`invoke discard` prints `discard`, the 10 s timeout prints nothing).
 - `NX`: paths where a notification could get stuck or lose its place. A `resident` notification after its action, `replaces_id` updates of waiting and hidden notifications, and the order of `dismissAll`.
+- `RP`: rapid OSD presses. Key repeat (30 presses 40 ms apart), a press during the fade-out and a reload while an OSD shows. One overlay map and one entry animation each time, an opaque fill in every frame of the key repeat, a fading strip in the frames before the late press, and no entry after the reload.
+- `ON`: an OSD over an open note. The overlay is already mapped, so the entry runs without a new surface. The note pauses under the strip, then comes back with its timer and its input mask.
 - `END`: nothing is left tracked and the overlay is unmapped. It runs last.

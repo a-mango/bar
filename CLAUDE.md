@@ -9,8 +9,9 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - `tests/nested.sh run <command>`: run a command inside the nested session (`env -i`, nested display and bus). `tests/nested.sh click <x> <y> [button]` clicks at logical coordinates.
 - `tests/scene.sh setup`: workspaces 1, 2, 3 and `4:demo`, urgent 3, two fake tray items, once per session. Then `mode`, `present`, `focus-other`, `focus-main`, `hover`, `tray <n> <status>`.
 - `make reference`: nested session running waybar with `docs/reference/waybar/`, screenshot of its bar (visual target)
-- `make matrix`: run the `docs/SPEC.md` test matrix against the nested session (about 4 minutes). `make matrix CASE=N5` runs one case, `CASE="N13 N18"` several.
+- `make matrix`: run the `docs/SPEC.md` test matrix against the nested session (about 5 minutes). `make matrix CASE=N5` runs one case, `CASE="N13 N18"` several.
 - `make shots`: screenshot the nested output into `.test/shots/`
+- `tests/nested.sh run tests/frames.py <dir> "<ms> run <command>" "<ms> shot" ...`: frame series. Commands and region shots on a schedule, each shot stamped with its frame time, plus `<dir>/sheet.png` and `frames.json`
 - `make log`: follow the nested Quickshell log
 - `make test`: `node --test tests/*.test.mjs` (unit tests for `services/Rules.js`)
 - `make shaders`: compile `shaders/*.frag` to `.qsb` with `/usr/lib64/qt6/bin/qsb`
@@ -75,3 +76,9 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - `seat seat0 cursor set 0 <y>` leaves x unchanged: a 0 coordinate means "keep".
 - sway does not slide popups of layer surfaces back onto the output. Anchor popups near an edge so that they grow away from it.
 - The nested session has `tests/bin` first on `PATH`: `darkman get` is the stub, which answers from `.test/darkman-mode` or fails.
+- grim reads back the whole 3840x2400 output for every shot, even with `-g`. That blocks the compositor (and Quickshell) for about 80 ms. Use `tests/frames.py` for anything timed.
+- After an edit to a singleton file alone (seen with `services/Motion.qml`), the hot reload kept the old values. Touch `shell.qml` as well.
+- A newly mapped window shows its first frame about 30 ms later, and Qt's first tick after `start()` only registers an animation. Entry animations start on the window's first `frameSwapped` (`OsdView`).
+- `PanelWindow` does not expose `_backingWindow` to QML. Use an item's attached `Window.window` for `frameSwapped`.
+- `mask: Region { item: null }` is an empty input region: every click goes through to the bar.
+- `debug state` lists the overlays of every output. Until M6 each overlay maps, so tests count maps and entries on HEADLESS-1 only.

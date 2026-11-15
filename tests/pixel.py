@@ -5,6 +5,8 @@
     tests/pixel.py IMAGE run X Y            the run of that color along row Y
                                             that contains X, as "start end"
     tests/pixel.py IMAGE ink X0 Y0 X1 Y1    number of distinct colors in the box
+    tests/pixel.py IMAGE count COLOR X0 Y0 X1 Y1   pixels of that #rrggbb color
+                                            in the box
     tests/pixel.py IMAGE diff OTHER X0 Y0 X1 Y1   pixels that differ in the box
     tests/pixel.py IMAGE bbox OTHER         bounding box of the differences,
                                             as "x0 y0 x1 y1"
@@ -40,6 +42,10 @@ elif op == "run":
 elif op == "ink":
     box = tuple(phys(v) for v in args)
     print(len(img.crop(box).getcolors(1 << 20)))
+elif op == "count":
+    color = tuple(int(args[0][i:i + 2], 16) for i in (1, 3, 5))
+    box = tuple(phys(v) for v in args[1:])
+    print(sum(n for n, c in img.crop(box).getcolors(1 << 20) if c == color))
 elif op in ("diff", "bbox"):
     other = Image.open(args[0]).convert("RGB")
     if op == "diff":
