@@ -299,7 +299,8 @@ Status (2026-11-15, branch `m4-notes`): the whole matrix passes on a fresh sessi
 - Handoff (case HO, S7 method with a hold at both ends): the first frame, the last frame and the bar after the unmap each differ from the idle bar in 0 of 9,216,000 pixels (`.test/shots/HO/`).
 - Long mode (case NW): beside the `present:` stand-in the label stays in full and the span gets 991 px. Beside a longer fictional mode the label elides and the span gets exactly 600 px, and the label is back in full after the note (`.test/shots/NW/`).
 - Marquee (case N2): a line that fits has no overflow, no marquee and no offset, and its pixels do not move between 2 and 3.5 s. A 400-character body holds until about 1.8 s (wipe plus 1200 ms), then scrolls at a measured 60 px/s within the IPC jitter.
-- Idle CPU (case CPU): 0.0 % on every `top` sample, CPU time unchanged (`.test/logs/m4/cpu-idle.log`).
+- Idle CPU (case CPU): the case first runs a marquee, a pulsing critical and a roll, checks that the view is idle with no pulse, marquee or roll left, then measures. After the whole matrix and that case, `top` shows 0.0 % on every sample and the process CPU time stays at 0:29.19 (`.test/logs/m4/cpu-idle.log`, `matrix-cpu.log`).
+- Note line rendering, checked once by hand: a note sent with `-i <png>` and a body with `<b>`, `&amp;`, `<i>`, `<u>`, a newline and an `<img>` shows the icon, the three styles, `&`, ` · ` and no image (`.test/shots/m4/icon-markup.png`).
 
 Clicks on the note (dismiss, actions) and the hover pause belong to M5: N4 dismisses its critical through IPC. Q10 to Q12 in section 8 list the choices M4 made.
 
@@ -596,7 +597,7 @@ Measured in the nested session on 2026-11-14 (evidence in `.test/logs/m4/` and `
 - Frame series: `grim -l 0 -g "0,1176 1920x24"` grabs only the bar strip without compression. Started on their own schedule, the grabs begin within 1 ms of their target time. `tests/frames.py` combines that with the slow-motion factor (x10 for 60 ms steps).
 - The clock compacts by clipping its full text from the left. In some middle frames a sliver of a date digit shows at the box's left edge (N1 and N4 entry series at 160 ms). M7 can fade the date part instead.
 - The leading-edge glow (`MultiEffect` shadow, `blurMax` 12) is faint at 1x viewing. M7 tunes it or replaces it with the shader.
-- Idle cost: with no notification, `top -b -n 5 -d 1` reports 0.0 % CPU on every sample for the bar process, and its CPU time does not change (`.test/logs/m4/cpu-idle.log`).
+- Idle cost: with no notification, `top -b -n 5 -d 1` reports 0.0 % CPU on every sample for the bar process, and its CPU time does not change, also right after a marquee, a critical pulse and a roll (`.test/logs/m4/cpu-idle.log`).
 - A host suspend during a matrix run breaks the timing checks of the case that is running. In the first full M4 run the host suspended at 17:16:55, between two closes in NX. The 1.5 s timeout of the updated waiting note was measured as 40,049 s, and the note closed 0.4 s after the resume (`journalctl`: `The system will suspend now!`, `System returned from sleep`). The rerun passed.
 
 ### Open questions for the owner

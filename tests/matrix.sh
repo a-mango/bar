@@ -722,13 +722,26 @@ case_NW() {
 }
 
 # Idle cost (docs/PLAN.md M4): the bar's Quickshell process near 0 % CPU.
+# It runs every note animation first (marquee, progress line, critical
+# pulse, roll), so that one left running after use would show here.
 case_CPU() {
-    local f=0 pid log samples avg
+    local f=0 pid log samples avg body
     prepare
     reset_notifs
     scene tray 1 Active
     scene tray 2 Active
     [ "$(state "$(bar1)['clock']['seconds']")" = True ] && { click 960 $MID; scene hover 960 600; }
+    body=$(python3 -c 'print(("Fictional idle check with a body long enough to scroll across the span. " * 8)[:400])')
+    send "Idle check" "$body" > /dev/null
+    sleep 2.5
+    check "marquee ran" "$(view "v['marquee']['running']")" True || f=1
+    send -u critical -a demo-app "Idle check" "critical, pulsing" > /dev/null
+    sleep 1
+    check "pulse ran" "$(view "v['pulse']")" True || f=1
+    ipc notify dismiss
+    sleep 0.5
+    reset_notifs
+    check "afterwards: view idle, no pulse, no marquee, no roll" "$(view "(v['phase'], v['pulse'], v['marquee']['running'], v['rolling'])")" "('idle', False, False, False)" || f=1
     sleep 2
     pid=$(ps -eo pid=,args= | awk -v want="quickshell -p $REPO" '{ p = $1; $1 = ""; sub(/^ /, ""); if ($0 == want) print p }')
     check "one bar process" "$(wc -w <<< "$pid")" 1 || return 1
