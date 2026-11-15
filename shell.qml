@@ -81,6 +81,12 @@ ShellRoot {
                 overlay: root.overlayMode,
                 theme: Theme.mode,
                 mode: Sway.mode,
+                sway: {
+                    focused: Sway.focusedOutput,
+                    fullscreen: Sway.fullscreenOutputs,
+                    focusedFullscreen: Sway.focusedFullscreen,
+                    treeReads: Sway.treeReads
+                },
                 received: Notifs.received,
                 notifs: JSON.parse(Notifs.status()),
                 bars: bars.instances.map(b => ({
