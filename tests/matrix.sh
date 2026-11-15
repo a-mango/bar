@@ -797,6 +797,10 @@ case_N15() {
 
 # Handoff (SPEC section 2, spike S7 method): the first and the last overlay
 # frames are the idle bar, pixel for pixel. The view holds at both frames.
+# The note's timeout runs while the view holds at the first frame, and the
+# full-output shot of that frame takes about 0.9 s. With 1.5 s the note could
+# expire before the first release, which then ended the hold at the last
+# frame: 3 s keeps the release inside the timeout.
 case_HO() {
     local f=0 attempt m0 m1 phase1 mapped idle first last after id
     prepare
@@ -805,7 +809,7 @@ case_HO() {
         m0=$(date +%H:%M)
         ipc debug noteHold true
         idle=$(shot HO idle)
-        id=$(send -t 1500 "Handoff check" "first and last frame")
+        id=$(send -t 3000 "Handoff check" "first and last frame")
         sleep 0.6
         phase1=$(view "(v['phase'], v['c'], v['w'], d['overlays'][0]['visible'])")
         first=$(shot HO first)
