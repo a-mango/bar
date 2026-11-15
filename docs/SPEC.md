@@ -75,7 +75,7 @@ The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `ma
   - Hover: `base03` background.
 - Buttons have 5 px horizontal padding around a content box of at least 16 px, and no rounded corners. Labels are bold, as the GTK theme draws waybar's buttons. A left click activates the workspace (`I3Workspace.activate()`). Scrolling does nothing (waybar's `disable-scroll`).
 - The sway mode follows the workspaces with a 6 px gap (waybar's 4 px margin plus 2 px module spacing). It is hidden in `default`. Other modes show their name in italics, `base07` on `base04`, with 7 px padding. Source: an `I3IpcListener` subscribed to `mode` events, with the initial mode from `swaymsg -t get_binding_state` (spike S10).
-- The mode name always shows in full while no note is visible. The `present:` mode doubles as a cheat sheet (`~/.config/sway/config.d/60-bindings-present.conf`), and waybar cuts it short today. The text only elides on the right if a note would otherwise get less than 600 px.
+- The mode name always shows in full while no note is visible. The `present:` mode doubles as a cheat sheet (`~/.config/sway/config.d/60-bindings-present.conf`), and waybar cuts it short today. The text only elides on the right if a note would otherwise get less than 600 px. The 600 px are the whole center span of section 4 (M4 choice, question Q11 in `PLAN.md` section 8). The label elides from the first frame of the note's entry to the last frame of its leave. A name that already runs under the clock when idle keeps the bar's clock box over it, empty while the note shows (question Q10).
 
 ### Center: clock
 
@@ -107,12 +107,16 @@ The rule in section 5 decides the kind: only the apps `volume`, `brightness` and
 
 Center span: while a note is visible, it runs from the end of the left section (plus 8 px) to the start of the tray (minus 8 px). From left to right, it holds the compact clock `HH:mm`, a `│` separator in `base03`, then the note line.
 
+- The compact clock is the bar's clock box made narrow: `base07` on `base00` with 7 px padding (54 px). With seconds shown in the bar, it keeps `HH:mm:ss`, so only the date leaves (M4 choice, Q12).
+- The separator takes one character cell (8 px) on the bar's background.
+- The note region runs from the separator to the span's end: `base01` (`base08` on critical), 7 px padding on both sides, the parts of the line 8 px apart.
+
 Note line, left to right:
 
-- Icon (16 px), from `image` or `appIcon` through `Quickshell.iconPath()`. Browsers and chat apps often send `image-data` (avatars, site icons). Outside rich mode, that image only fills this icon.
-- App name in `base04`, summary in `base07`, body in `base05`.
-- Newlines in the body become ` · `. The body advertises and renders a safe markup subset (`<b>`, `<i>`, `<u>`), and other tags are stripped.
-- While others wait, a counter `+N` sits at the right end of the span.
+- Icon (16 px), from `image` or `appIcon` through `Quickshell.iconPath()`. Browsers and chat apps often send `image-data` (avatars, site icons). Outside rich mode, that image only fills this icon. An icon that does not load takes no room.
+- App name in `base04`, summary in `base07`, body in `base05`. On a critical, all three are `base07`.
+- Newlines in the body become ` · `. The body advertises and renders a safe markup subset (`<b>`, `<i>`, `<u>`), and other tags are stripped. `services/Markup.js` does this, pure JS with unit tests: `<br>` counts as a newline, entities stay, a stray `<`, `>` or `&` is escaped, `<img>` goes with its attributes (StyledText would load it). App name and summary are plain text on one line.
+- While others wait, a counter `+N` sits at the right end of the span, `base04` (`base07` on critical).
 
 ## 5. Notification rules
 
@@ -165,10 +169,11 @@ Durations and easing curves are starting values for tuning. They live in one `Mo
 
 Note:
 
-- **Enter.** The overlay maps showing exactly the bar's idle center. The clock compacts from `yyyy-MM-dd HH:mm` to `HH:mm` while sliding to the left edge of the span (240 ms, `Easing.OutCubic`). The separator appears, then the note wipes in from the separator to the right end of the span (320 ms, `Easing.OutCubic`). The span background (`base01`) grows with the wipe. The leading edge is a 2 px `base0D` line with a soft glow (`MultiEffect`, or the shader from M7). The text sits at its final position and is revealed by the clip, so it does not move.
-- **Stay.** A line wider than the space it has holds for 1200 ms, then scrolls left at 60 px/s. It holds for 1000 ms at the end, then fades back to the start in 150 ms. A 2 px progress line on the top edge of the span shrinks to zero over the timeout (`base03`, `base07` on critical).
-- **Leave.** The note retracts into the separator (240 ms, `Easing.InCubic`). Then the clock slides back to the center and expands to the full format (240 ms, `Easing.OutCubic`). The overlay unmaps on the frame that matches the bar's idle center.
-- **Next in queue.** While the span is open, the old line moves up out of the strip and the new one comes in from below, 200 ms (`Easing.OutQuad`). The clock stays compact, and there is no second wipe.
+- **Enter.** The overlay maps showing exactly the bar's idle center: a `base00` box over the bar's clock box, and the overlay's own clock in it. Nothing moves until that first frame is on screen (the window's `frameSwapped`, with a 250 ms fallback), because a layer surface is configured before it draws. The clock compacts from `yyyy-MM-dd HH:mm` to `HH:mm` while sliding to the left edge of the span (240 ms, `Easing.OutCubic`): the full text stays right-aligned in a box that narrows, so the date leaves on the left. The separator fades in with the slide, then the note wipes in from the separator to the right end of the span (320 ms, `Easing.OutCubic`). The span background (`base01`) grows with the wipe. The leading edge is a 2 px `base0D` line with a soft glow (`MultiEffect`, or the shader from M7). It stays at the span's end while the note shows. The text sits at its final position and is revealed by the clip, so it does not move. The `base00` box over the bar's clock stays until the overlay unmaps, so the bar's clock never shows through.
+- **Stay.** A line wider than the space it has holds for 1200 ms, then scrolls left at 60 px/s. It holds for 1000 ms at the end, then fades back to the start in 150 ms, and the cycle repeats. The hold starts when the wipe (or a roll) ends. A 2 px progress line on the top edge of the note region shrinks to zero over the timeout (`base03`, `base07` on critical). It stops while the timer pauses (under an OSD), and a notification without a timeout has none.
+- **Leave.** The note retracts into the separator (240 ms, `Easing.InCubic`). Then the clock slides back to the center and expands to the full format (240 ms, `Easing.OutCubic`). The overlay unmaps once the frame that matches the bar's idle center is on screen. The leave runs after the notification closed, so the view draws from the entry's snapshot. A note that arrives during the leave opens the span again from where it is.
+- **Next in queue.** While the span is open, the old line moves up out of the strip and the new one comes in from below, 200 ms (`Easing.OutQuad`). The background crossfades over the same time when the colors differ. The clock stays compact, and there is no second wipe. A note that replaces the one on display through the synchronous tag changes the text in place, like a `replaces_id` update.
+- **Reload survivor.** It comes back with the span already open, without the entry animation.
 
 OSD (full width):
 
@@ -209,6 +214,8 @@ Calls use `quickshell ipc -p <config dir> call <target> <function> [args]`. Type
 | `status(): string` | JSON `{dnd, visible, kind, queued, current: {id, app, summary}}`, for tests and scripts. `current` is the OSD while one shows. The matrix reads more fields: `note`, `osd`, `waiting`, `hidden`, `history`, `tracked` |
 
 `theme` target: `set(mode: string)` with `dark` or `light`, and `mode(): string`.
+
+`debug` target, for tests only: `state(): string` (bars, overlays, the note view's geometry and animation state), `overlay(mode)` (the M0 spike content), `trayMenu(index, open)`, `slow(factor: real)` (note durations times `factor`, for frame series), `noteHold(on: bool)` and `noteRelease()` (the note view waits at its first and last frame, for the handoff check).
 
 Sway bindings (decision D3), installed at cutover from `packaging/sway-bindings.conf`. Each one runs `quickshell ipc -p ~/.local/share/bar call notify <function>`:
 
@@ -294,8 +301,13 @@ Notifications:
 | N17 | fullscreen test client, a plain note, fullscreen off after 10 s; then the same with 35 s | first run: the note appears after the exit. Second run: nothing appears, the note is in history, reason 1 |
 | N18 | two `-u critical -a battery-appindicator` notes 1 s apart, neither clicked, checked after 60 s | both still tracked, the newer one visible with `+1`, and dismissing it shows the older one |
 
-`tests/matrix.sh` has three more cases:
+`tests/matrix.sh` has six more cases:
 
 - `SC`: `GetCapabilities` and the `screenshot.sh` contract of section 12 through IPC (`invoke discard` prints `discard`, the 10 s timeout prints nothing).
 - `NX`: paths where a notification could get stuck or lose its place. A `resident` notification after its action, `replaces_id` updates of waiting and hidden notifications, and the order of `dismissAll`.
-- `END`: nothing is left tracked and the overlay is unmapped. It runs last.
+- `HO`: the handoff of section 2. With the note view held at its first and last frame, both frames and the bar after the unmap are pixel-identical to the idle bar.
+- `NW`: the width rule of section 3. Beside the `present:` stand-in the mode shows in full, beside a longer fictional mode it elides so that the span keeps 600 px, and it comes back in full after the note.
+- `CPU`: the idle cost of section 7. `top -b -n 5 -d 1` on the bar process, saved to `.test/logs/m4/cpu-idle.log`.
+- `END`: nothing is left tracked and the overlay is unmapped. It runs last, right after N16.
+
+N1, N3 and N4 also save frame series of the bar strip (`tests/frames.py`, with the slow-motion factor of the `debug` target), N2 and N15 at normal speed.

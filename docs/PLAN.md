@@ -102,6 +102,7 @@ bar/
   services/
     Notifs.qml            Singleton: NotificationServer, queue, timers, DND, history
     Rules.js              pure JS rules and classify(), no QML imports
+    Markup.js             pure JS text of the note line (body markup subset)
     StateFile.qml         Singleton: state.json (theme mode, DND), one key per service
     Theme.qml             Singleton: palettes, darkman mode, theme IPC
     Motion.qml            Singleton: durations and easing curves
@@ -132,12 +133,14 @@ bar/
     scene.sh              puts a nested session into a known state (workspaces, mode, tray)
     vpointer.py           virtual pointer, so that seat cursor commands reach clients
     pixel.py, rows.py, pixdiff.py   screenshot checks in logical px
+    frames.py             frame series of the bar strip (staggered grim grabs)
     lint.sh               qmllint with the qs.* modules resolved
     bin/darkman           darkman stand-in on the nested PATH
     fake-sni.py           fake tray item with a menu (python3-dbus-next)
     fake-screenshot.sh    the notify part of screenshot.sh, without grimshot or gio trash
     client/shell.qml      FloatingWindow test client (urgent and fullscreen cases)
     rules.test.mjs        node --test unit tests for services/Rules.js
+    markup.test.mjs       node --test unit tests for services/Markup.js
   packaging/
     bar.service                                 systemd user unit (M8)
     org.freedesktop.Notifications.service       D-Bus activation file (M8)
@@ -289,6 +292,16 @@ Done when:
 - With the long mode name active, the note still gets at least 600 px.
 - The marquee does not start when the text fits.
 - While idle, the Quickshell process stays near 0 % CPU (`top -b -n 5 -d 1 -p <pid>`, output saved to `.test/logs/`).
+
+Status (2026-11-15, branch `m4-notes`): the whole matrix passes on a fresh session, 26 cases with exit status 0 (`.test/logs/m4/matrix.log`). That covers B1 to B6, every M1 case, and the M4 cases N2, N4, N15, N16, HO, NW and CPU. `make test` passes with 37 tests (`.test/logs/m4/make-test.log`), and `make lint` shows only the known warnings from the Quickshell type files (`.test/logs/m4/lint.log`). A first full run failed one NX timing check because the host suspended for 11 hours in the middle of it (`.test/logs/m4/matrix-suspended.log`, section 8). `.test/shots/m4/overview.png` stacks the key frames for review. The checks, one by one:
+
+- Frame series: `.test/shots/N1/enter-series.png` and `leave-series.png`, `N2/marquee-series.png`, `N3/roll-series.png`, `N4/enter-series.png` and `pulse-series.png`, `N15/click-series.png`. N1, N3 and N4 use slow motion x10, so a 60 ms step is 600 ms of real time. Each sheet labels its frames with the nominal and the measured grab time. N16 passes: the idle bar after all cases matches the one before them, clock digits left out (`.test/shots/N16/`).
+- Handoff (case HO, S7 method with a hold at both ends): the first frame, the last frame and the bar after the unmap each differ from the idle bar in 0 of 9,216,000 pixels (`.test/shots/HO/`).
+- Long mode (case NW): beside the `present:` stand-in the label stays in full and the span gets 991 px. Beside a longer fictional mode the label elides and the span gets exactly 600 px, and the label is back in full after the note (`.test/shots/NW/`).
+- Marquee (case N2): a line that fits has no overflow, no marquee and no offset, and its pixels do not move between 2 and 3.5 s. A 400-character body holds until about 1.8 s (wipe plus 1200 ms), then scrolls at a measured 60 px/s within the IPC jitter.
+- Idle CPU (case CPU): 0.0 % on every `top` sample, CPU time unchanged (`.test/logs/m4/cpu-idle.log`).
+
+Clicks on the note (dismiss, actions) and the hover pause belong to M5: N4 dismisses its critical through IPC. Q10 to Q12 in section 8 list the choices M4 made.
 
 ### M5: rich mode and input
 
@@ -568,6 +581,24 @@ Measured in the nested session on 2026-11-14 (bus logs in `.test/logs/m1/bus-<ca
 - A `notify-send -r` update that repeats the same text restarts the time as well (measured: closed 5.0 s after the update, `.test/logs/m1/bus-same-update.log`).
 - After a reload each survivor gets its full timeout again, and a waiting one a new 30 s limit.
 
+### M4 findings
+
+Measured in the nested session on 2026-11-14 (evidence in `.test/logs/m4/` and `.test/shots/<case>/`).
+
+- Handoff: the overlay can reproduce the bar's idle center exactly, but only if it waits. A layer surface is configured before its first frame, and an animation started at map time has moved on by then. The view therefore holds the first frame (the bar's clock box) until the window reports `frameSwapped`, and unmaps only after the frame with the clock box back in place has been swapped. `root.Window.window` (the attached `Window` property) reaches the backing `QQuickWindow`, its `frameSwapped` signal and its `update()` slot from QML. The debug state reports `frameVia: "frame"` when the wait ended on a swap, `"timeout"` after the 250 ms fallback. In every run it ended on a swap.
+- Result of the S7 method with a hold at both ends (case HO): first frame, last frame and the bar after the unmap each differ from the idle bar in 0 of 9,216,000 pixels.
+- `Notifs.current` passes through `null` when the next note takes the span (`onClosed` sets it to null, then `showNext()`). The view reads it through `Qt.callLater`, so a queue change is a roll and not a leave followed by an entry, and the overlay never unmaps between two notes.
+- The leave animation runs after the notification closed and its object is deleted. The view draws from snapshots: `Notifs.snapshot()` now also keeps `image` and `appIcon`.
+- Entries are plain JS objects without change signals. `Notifs.timing` is bumped when a display timer starts, pauses or restarts, so the progress line follows a pause under an OSD.
+- A running animation group keeps the durations it started with. The slow-motion factor (`debug slow`) therefore restarts the looping animations (pulse, marquee) when it changes.
+- Quickshell can miss the second of two file changes made in quick succession (the first triggers the reload, the second is not picked up). `touch` the file again when the log shows no second `Configuration Loaded`.
+- A property named `left` or `right` in an `Item` fails with "Cannot override FINAL property" (they are anchor lines).
+- Frame series: `grim -l 0 -g "0,1176 1920x24"` grabs only the bar strip without compression. Started on their own schedule, the grabs begin within 1 ms of their target time. `tests/frames.py` combines that with the slow-motion factor (x10 for 60 ms steps).
+- The clock compacts by clipping its full text from the left. In some middle frames a sliver of a date digit shows at the box's left edge (N1 and N4 entry series at 160 ms). M7 can fade the date part instead.
+- The leading-edge glow (`MultiEffect` shadow, `blurMax` 12) is faint at 1x viewing. M7 tunes it or replaces it with the shader.
+- Idle cost: with no notification, `top -b -n 5 -d 1` reports 0.0 % CPU on every sample for the bar process, and its CPU time does not change (`.test/logs/m4/cpu-idle.log`).
+- A host suspend during a matrix run breaks the timing checks of the case that is running. In the first full M4 run the host suspended at 17:16:55, between two closes in NX. The 1.5 s timeout of the updated waiting note was measured as 40,049 s, and the note closed 0.4 s after the resume (`journalctl`: `The system will suspend now!`, `System returned from sleep`). The rerun passed.
+
 ### Open questions for the owner
 
 These are questions about how bar looks or behaves, so M0 does not settle them. Q3 to Q9 are gaps in the SPEC that M1 had to fill to build the core. Each is built as described and stays that way unless the owner decides otherwise.
@@ -581,3 +612,6 @@ These are questions about how bar looks or behaves, so M0 does not settle them. 
 - **Q7, target of `dismiss()`.** Built: the OSD while one shows, else the note. `$mod+n` during a volume change removes the OSD, and a second press removes the note under it.
 - **Q8, `restore()`.** Built: the newest history entry leaves the list, shows as a plain note for 5 s without its actions, and returns to the list when it closes. Repeated calls bring back older entries one after the other, and they wait in the queue like any note. It also shows while DND is on, since it answers a key press.
 - **Q9, a `replaces_id` update that changes the urgency.** Built: the rules are read again on every update. A note on display that turns critical becomes a critical in place (no timeout, `base08`), and a waiting note that turns critical takes the span like a new critical. An update never moves a notification between the OSD strip and the note span.
+- **Q10, a mode name that runs under the clock.** The bar draws its clock box above the mode label, so a mode name longer than about 90 characters already passes under the clock when idle. While a note shows, the overlay covers the bar's clock with an empty `base00` box (the handoff needs it), so that box stays in the middle of the label while the clock sits compact in the span (`.test/shots/NW/long.png`). Built: as described. The other choices are to elide the mode before the clock box while a note shows, or to hide the bar's clock while a note shows, which needs the two windows to change in the same frame.
+- **Q11, what the 600 px measure.** Built: the whole center span (compact clock, separator and note region), as SPEC section 4 defines the span. The note region itself then gets 538 px. The other choice is 600 px for the note region, which elides the mode 62 px sooner.
+- **Q12, small choices in the note view.** Built, each open to change in M7: with seconds shown in the bar, the compact clock keeps `HH:mm:ss` (only the date leaves). The leading edge stays at the span's end while the note shows, static on a note and pulsing on a critical. The progress line runs over the note region only, not over the compact clock. The `+N` counter is `base04`. On a critical, the app name, the body and the counter are `base07` like the summary. During a roll the background crossfades (`base01` to `base08` when a critical follows a note). A note that arrives during a leave opens the span again from where it is, without first unmapping.
