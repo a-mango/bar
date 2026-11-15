@@ -277,7 +277,27 @@ Done when:
 - Case B7 passes for the OSD part.
 - The owner has looked at the frames.
 
-Status (2026-11-14, branch `m3-osd`): the whole matrix passes on a fresh session, 22 cases in 5 min 4 s (`.test/logs/m3/matrix.log`). N5 keeps every M1 check and adds a frame series (0, 60, 120, 300 and 900 ms, shown frames at 2, 62, 127, 306 and 901 ms), one overlay map, one entry and four updates. N6 adds the brightness and microphone series at value 0, palette sheets in both themes and a click that dismisses the OSD (reason 2). B7 passes for the OSD over a fullscreen client. The new case RP covers rapid presses: 30 presses 40 ms apart, a press during the fade-out and a reload, each with one map and no second entry. The frames are in `.test/shots/m3/`: `N5-volume-frames.png`, `N6-brightness-frames.png`, `N6-microphone-frames.png`, `N6-palette-dark.png`, `N6-palette-light.png`, `RP-fade-frames.png`, `RP-repeat-frames.png` and `B7-osd-fullscreen.png`. Their `frames.json` files and the N5 and N6 bus logs are in `.test/logs/m3/`. `make test` passes 27 tests, and `make lint` shows the same 9 warnings as `main`, all from the Quickshell type files. The owner's look at the frames is still owed, together with Q10 to Q12 from section 8.
+Status (2026-11-15, branch `m3-osd`): the whole matrix passes on a fresh session, 23 cases in 4 min 43 s at commit `8ddaf8e` (`.test/logs/m3/matrix.log`).
+
+- N5 keeps every M1 check and adds a frame series: requested at 0, 60, 120, 300 and 900 ms, the frames shown are from 2, 63, 128, 307 and 901 ms. It also checks one overlay map, one entry and four updates.
+- N6 adds the brightness and microphone series at value 0, palette sheets in both themes, and a click that dismisses the OSD (reason 2).
+- B7 passes for the OSD over a fullscreen client.
+- Two new cases:
+  - RP covers rapid presses: 30 presses 40 ms apart, a press during the fade-out (with a fading frame before it) and a reload, each with one map and no second entry.
+  - ON covers an OSD over an open note: no new surface, the note paused, then back with its timer and its input mask.
+
+The frames are in `.test/shots/m3/`:
+
+- `N5-volume-frames.png`
+- `N6-brightness-frames.png`, `N6-microphone-frames.png`
+- `N6-palette-dark.png`, `N6-palette-light.png`
+- `RP-fade-frames.png`, `RP-repeat-frames.png`
+- `B7-osd-fullscreen.png`
+- `ON-osd-over-note.png`
+
+Their `frames.json` files and the N5 and N6 bus logs are in `.test/logs/m3/`. An earlier full run, `matrix-suspended.log`, failed N3 only because the laptop suspended in the middle of that case. `make test` passes 27 tests, and `make lint` shows the same 9 warnings as `main`, all from the Quickshell type files.
+
+Still owed: the owner's look at the frames, and answers to Q10 to Q12 from section 8.
 
 ### M4: note view
 
