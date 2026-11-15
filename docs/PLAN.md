@@ -328,6 +328,8 @@ Status (2026-11-15, branch `m4-notes`): the whole matrix passes on a fresh sessi
 
 Clicks on the note (dismiss, actions) and the hover pause belong to M5: N4 dismisses its critical through IPC. Q13 to Q15 in section 8 list the choices M4 made (numbered Q10 to Q12 on the branch, renumbered at the merge with M3).
 
+Merged into `main` with M3 on 2026-11-16: the whole matrix passes on a fresh session, 30 cases in 6 min 58 s (`.test/logs/merge/matrix.log`). Two checks changed after the merge. ON read the note background on the row of M4's progress line. HO's 1.5 s note could expire before the case's first release, because the full-output shot of the first frame takes about 0.9 s, and the release then ended the hold at the last frame (2 failures in 3 runs). HO now sends a 3 s note. M4's `tests/frames.py` is now `tests/strip-frames.py`, since M3's screencopy tool keeps the name.
+
 ### M5: rich mode and input
 
 Builds decisions D1 (card for `screenshot` only) and D5 (hold notes during fullscreen) from section 7.
