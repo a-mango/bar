@@ -1098,7 +1098,7 @@ case_ON() {
     s=$(shot ON note-after-osd)
     check "OSD gone, overlay still mapped for the note" "$(state "($H1['osd']['active'], $H1['visible'])")" "(False, True)" || f=1
     check "note on display again, timer running" "$(notif "(d['note']['summary'], d['note']['running'])")" "('Sync finished', True)" || f=1
-    check "note span drawn again (base01)" "$(px "$s" color 960 $TOP)" "$(palette base01)" || f=1
+    check "note span drawn again (base01, below the progress line)" "$(px "$s" color 960 1179)" "$(palette base01)" || f=1
     click 65 $MID
     sleep 0.3
     check "mask back on the note span: a click on workspace 3 reaches the bar" "$(focused_ws)" 3 || f=1
