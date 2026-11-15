@@ -17,7 +17,8 @@ import "Rules.js" as Rules
 //
 // An entry is a plain object:
 //   n          the Notification, null once closed or for a restored history entry
-//   data       snapshot {id, app, summary, body, urgency, value, time}, kept for history
+//   data       snapshot {id, app, summary, body, urgency, value, image, icon, time},
+//              kept for history and for the views once the object is gone
 //   cls        Rules.classify() result
 //   tag        x-canonical-private-synchronous hint, or ""
 //   restored   true for a reload survivor (the views skip the entry animation)
@@ -43,6 +44,9 @@ Singleton {
     readonly property var history: persist.history
     // Bumped when an entry's snapshot changes, for views that read `data`.
     property int revision: 0
+    // Bumped when a display timer starts, pauses or restarts, for the
+    // progress line (the entries are plain objects without signals).
+    property int timing: 0
     property int received: 0
 
     // ---- arrival -------------------------------------------------------
@@ -150,6 +154,8 @@ Singleton {
             body: n.body,
             urgency: n.urgency,
             value: n.hints.value ?? null,
+            image: n.image,
+            icon: n.appIcon,
             time: Date.now()
         };
     }
@@ -223,6 +229,7 @@ Singleton {
             return;
         e.running = true;
         e.deadline = isFinite(e.remaining) ? Date.now() + e.remaining : null;
+        timing += 1;
     }
 
     function pause(e: var): void {
@@ -232,6 +239,7 @@ Singleton {
         if (e.deadline !== null)
             e.remaining = Math.max(0, e.deadline - Date.now());
         e.deadline = null;
+        timing += 1;
     }
 
     // ---- updates and closing ------------------------------------------

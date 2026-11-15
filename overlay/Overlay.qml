@@ -8,8 +8,8 @@ import qs.bar
 // It is mapped only while it has something to show, and its input mask
 // covers only what it draws.
 //
-// The OSD is OsdView (M3). Notes still use the M1 debug view, plain text
-// in the middle half without animation, until NoteView (M4).
+// The OSD is OsdView (M3). Notes, criticals and (until M5) rich
+// notifications show in NoteView (M4).
 //
 // `mode` keeps the M0 spike content for tests: "strip" (base0D over the
 // whole bar), "part" (the middle third), "handoff" (the idle clock box).
@@ -19,10 +19,17 @@ PanelWindow {
 
     required property ShellScreen modelData
     property string mode: "off"
+    // The bar of the same output (set in shell.qml): NoteView places the
+    // center span from its clock, left section and tray.
+    property var bar: null
+    // Debug: hold the note view at its first and last frame.
+    property bool noteHold: false
 
-    readonly property var note: Notifs.current
-    // The OSD view stays active until its fade-out ends.
-    readonly property bool showing: mode !== "off" || osdView.active || note !== null
+    // Both views stay active until their leave animation ends: the OSD
+    // until its fade-out, the note from the first frame of its entry to
+    // the last frame of its leave.
+    readonly property bool noteOpen: noteView.active
+    readonly property bool showing: mode !== "off" || osdView.active || noteView.active
     readonly property alias osdView: osdView
 
     // Spike S3/S4: clicks received by the drawn content.
@@ -34,16 +41,12 @@ PanelWindow {
             maps += 1;
     }
 
-    function text(e: var): string {
-        if (!e)
-            return "";
-        Notifs.revision; // re-read after replaces_id updates
-        const d = e.n ? {
-            app: e.n.appName,
-            summary: e.n.summary,
-            body: e.n.body
-        } : e.data;
-        return [d.app, d.summary, d.body].filter(t => t).join("  ·  ").replace(/\n/g, " · ");
+    // Test helpers (debug target in shell.qml).
+    function noteState(): var {
+        return noteView.debugState();
+    }
+    function releaseNote(): void {
+        noteView.release();
     }
 
     screen: modelData
@@ -56,41 +59,26 @@ PanelWindow {
     exclusionMode: ExclusionMode.Ignore
     color: "transparent"
     visible: showing
-    // Only what takes clicks: nothing while the OSD fades out over the bar.
+    // Only what takes clicks: the OSD while it has an entry, else the note
+    // span (empty while no note shows). A fading OSD takes no clicks.
     mask: Region {
-        item: win.mode !== "off" ? spike : osdView.entry !== null ? osdView : win.note !== null ? noteSpan : null
+        item: win.mode !== "off" ? spike : osdView.entry !== null ? osdView : noteView.hitArea
     }
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "bar-overlay"
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
-    // ---- notifications (M1 debug view) ----
+    // ---- notifications ----
 
-    Rectangle {
-        id: noteSpan
-        visible: win.mode === "off" && win.note !== null
+    NoteView {
+        id: noteView
+        visible: win.mode === "off"
+        anchors.left: parent.left
+        anchors.right: parent.right
         anchors.bottom: parent.bottom
-        x: Math.round(parent.width / 4)
-        width: Math.round(parent.width / 2)
-        height: Theme.barHeight
-        color: win.note ? Theme[win.note.cls.background] : "transparent"
-
-        BarText {
-            x: 8
-            width: parent.width - 16 - (queued.visible ? queued.width + 8 : 0)
-            elide: Text.ElideRight
-            text: win.text(win.note)
-            color: win.note && win.note.cls.kind === "critical" ? Theme.base07 : Theme.base05
-        }
-        BarText {
-            id: queued
-            anchors.right: parent.right
-            anchors.rightMargin: 8
-            visible: Notifs.queued > 0
-            text: "+" + Notifs.queued
-            color: Theme.base04
-        }
+        bar: win.bar
+        hold: win.noteHold
     }
 
     // Above the note span: an OSD covers the whole bar.
@@ -123,7 +111,7 @@ PanelWindow {
     }
 
     MouseArea {
-        parent: win.mode !== "off" ? spike : noteSpan
+        parent: win.mode !== "off" ? spike : noteView.hitArea
         anchors.fill: parent
         onClicked: {
             win.clicks += 1;

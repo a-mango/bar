@@ -12,6 +12,16 @@ PanelWindow {
     required property ShellScreen modelData
     readonly property alias tray: tray
     readonly property alias clock: clock
+    readonly property alias mode: mode
+
+    // True while the overlay of this output shows a note (set in shell.qml).
+    // The mode name then elides if the note would get less than noteMinimum.
+    property bool noteOpen: false
+    readonly property int noteMinimum: 600
+    // The bounds of the note's center span (docs/SPEC.md section 4): the
+    // end of the left section and the start of the tray, 8 px gap each.
+    readonly property real leftEnd: mode.visible ? mode.x + mode.width : workspaces.width
+    readonly property real trayStart: tray.x
 
     screen: modelData
     anchors {
@@ -35,7 +45,10 @@ PanelWindow {
 
     // waybar: 4 px margin after the workspaces, 2 px between modules.
     Mode {
+        id: mode
         x: workspaces.width + 6
+        // Depends on the tray and its own x only, never on its width.
+        maxWidth: win.noteOpen ? tray.x - 8 - win.noteMinimum - 8 - x : -1
     }
 
     Clock {

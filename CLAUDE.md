@@ -13,7 +13,8 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - `make shots`: screenshot the nested output into `.test/shots/`
 - `tests/nested.sh run tests/frames.py <dir> "<ms> run <command>" "<ms> shot" ...`: frame series. Commands and region shots on a schedule, each shot stamped with its frame time, plus `<dir>/sheet.png` and `frames.json`
 - `make log`: follow the nested Quickshell log
-- `make test`: `node --test tests/*.test.mjs` (unit tests for `services/Rules.js`)
+- `make test`: `node --test tests/*.test.mjs` (unit tests for `services/Rules.js` and `services/Markup.js`)
+- `tests/strip-frames.py <dir> <label> <slow> <ms...> [-- command]`: frame series of the bar strip through grim, from the host. Pair it with `call debug slow <factor>`, and reset the factor to 1 afterwards.
 - `make shaders`: compile `shaders/*.frag` to `.qsb` with `/usr/lib64/qt6/bin/qsb`
 - `make lint`: `qmllint` on all QML files through `tests/lint.sh` (needs `qt6-qtdeclarative-devel`)
 - `make install`: copy the tree to `~/.local/share/bar` as the live copy (M8 only, after the owner's go-ahead)
@@ -27,7 +28,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - The bar window is never hidden or unmapped, and a theme change never calls `Quickshell.reload()`. Both drop the exclusive zone and re-tile every window.
 - All transient content (OSD, notes, critical, rich card) goes in the overlay window, never in the bar window.
 - Colors only from `Theme`, durations and easing only from `Motion`. No raw hex values in views.
-- `services/Rules.js` stays pure JS (no QML imports) so `node` can test it.
+- `services/Rules.js` and `services/Markup.js` stay pure JS (no QML imports) so `node` can test them.
 - Every tracked notification must close eventually (expire, dismiss, action or `CloseNotification`). A notification that never closes hangs blocking senders such as `notify-send -A`.
 - IMPORTANT: test notifications, screenshots and docs use fictional text only.
 
@@ -41,7 +42,11 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 <!-- Add one line per non-obvious lesson learned; prune when obsolete. -->
 - The binary is `quickshell`, not `qs`. IPC: `quickshell ipc -p <config dir> call <target> <fn>`, and it only sees instances on the current Wayland display.
 - Use the long form `--no-duplicate`: the help text lists `-n` for both `--newest` and `--no-duplicate`.
-- Quickshell hot-reloads on every file change. The live copy (M8) runs from `~/.local/share/bar` with `Quickshell.watchFiles` set to false, never from this tree.
+- Quickshell hot-reloads on every file change, but can miss the second of two quick edits. If the log shows no second `Configuration Loaded`, `touch` the file. The live copy (M8) runs from `~/.local/share/bar` with `Quickshell.watchFiles` set to false, never from this tree.
+- `Notifs.current` passes through `null` when the next note takes the span. Views read it through `Qt.callLater`, or a queue roll looks like a leave and an entry.
+- The note view draws from snapshots: the leave and the roll run after the notification closed. The overlay's visibility follows `NoteView.active`, not `Notifs.current`.
+- A host suspend during `make matrix` breaks the timing checks of the running case (a 1.5 s timeout measured as 40,049 s). Before chasing a timing failure, check `journalctl | grep 'will suspend now'`.
+- A running animation group keeps its starting durations. Restart looping animations when a duration they bind to changes.
 - The overlay must use `ExclusionMode.Ignore` to lie on the bar. With a zero exclusive zone, the compositor stacks it above the bar's 24 px.
 - Set `n.tracked = true` inside the `notification` handler, or the server closes the notification as soon as the handler returns.
 - After a reload, surviving notifications come back through the same handler with `lastGeneration` set: re-track them and skip the entry animation.
@@ -78,7 +83,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - The nested session has `tests/bin` first on `PATH`: `darkman get` is the stub, which answers from `.test/darkman-mode` or fails.
 - grim reads back the whole 3840x2400 output for every shot, even with `-g`. That blocks the compositor (and Quickshell) for about 80 ms. Use `tests/frames.py` for anything timed.
 - After an edit to a singleton file alone (seen with `services/Motion.qml`), the hot reload kept the old values. Touch `shell.qml` as well.
-- A newly mapped window shows its first frame about 30 ms later, and Qt's first tick after `start()` only registers an animation. Entry animations start on the window's first `frameSwapped` (`OsdView`).
+- A newly mapped window shows its first frame about 30 ms later, and Qt's first tick after `start()` only registers an animation. Entry animations start on the window's first `frameSwapped` (`OsdView`, `NoteView`).
 - `PanelWindow` does not expose `_backingWindow` to QML. Use an item's attached `Window.window` for `frameSwapped`.
 - `mask: Region { item: null }` is an empty input region: every click goes through to the bar.
 - `debug state` lists the overlays of every output. Until M6 each overlay maps, so tests count maps and entries on HEADLESS-1 only.

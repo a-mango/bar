@@ -8,6 +8,7 @@
 #                                   (once per session: it leaves scene-ready)
 #   tests/scene.sh mode <name>      enter a sway mode ("default" leaves it)
 #   tests/scene.sh present          enter the long cheat-sheet mode
+#   tests/scene.sh long             enter the longer one (no room for a note)
 #   tests/scene.sh focus-other      add HEADLESS-2 if needed and focus it
 #   tests/scene.sh focus-main       focus HEADLESS-1 again
 #   tests/scene.sh hover <x> <y>    move the pointer (logical coordinates)
@@ -20,6 +21,9 @@ T=${NESTED_DIR:-$REPO/.test}
 export NESTED_DIR=$T
 
 PRESENT="present: n next · p previous · b blank · z zoom · Escape leave the fictional cheat sheet"
+# Longer than the room a 600 px note leaves (matrix case NW). Both names
+# are modes of tests/sway-nested.conf.
+LONG="present: n next · p previous · b blank · z zoom · f freeze · r reload · s swap screens · t timer · h hide notes · Escape leave the fictional cheat sheet that runs on past the clock"
 
 n() { "$REPO/tests/nested.sh" run "$@"; }
 msg() { n swaymsg -q -- "$@"; }
@@ -81,6 +85,7 @@ case ${1:-} in
     # swaymsg joins its arguments into one command: names with spaces need quotes.
     mode) msg mode "\"$2\"" ;;
     present) msg mode "\"$PRESENT\"" ;;
+    long) msg mode "\"$LONG\"" ;;
     focus-other)
         if ! n swaymsg -t get_outputs | grep -q '"HEADLESS-2"'; then
             msg create_output
