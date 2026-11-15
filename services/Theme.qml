@@ -20,6 +20,8 @@ Singleton {
     // 7.5. Every text adds this spacing to match the reference widths.
     readonly property real letterSpacing: 0.5
     readonly property int barHeight: 24
+    // The rich card above the note span (SPEC section 4, decision D1).
+    readonly property int cardHeight: 72
 
     readonly property var palettes: ({
             dark: parse(darkFile.text()),

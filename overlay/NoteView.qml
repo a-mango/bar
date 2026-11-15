@@ -9,7 +9,8 @@ import qs.bar
 import "../services/Markup.js" as Markup
 
 // The note view (docs/SPEC.md sections 2, 4 and 7): the 24 px strip of the
-// overlay where a note, a critical or (until M5) a rich notification shows.
+// overlay where a note, a critical or a rich notification shows. A rich
+// notification adds the card above the span (RichView, M5).
 //
 // While a note is visible, the overlay draws its own clock and the whole
 // center span, and the bar's clock never moves. The first frame draws the
@@ -20,18 +21,34 @@ import "../services/Markup.js" as Markup
 //
 // Two values drive the layout: `c` (0 the bar's clock box, 1 the compact
 // clock at the span's left edge) and `w` (0 retracted into the separator,
-// 1 the note across the span). The view draws from snapshots only: the
-// leave animation and the roll run after the notification has closed.
+// 1 the note across the span). A third, `r`, drives the rich card (0 behind
+// the strip, 1 up): it rises once the wipe or a roll has ended, and falls
+// before the line changes or the note leaves. The view draws from
+// snapshots only: the leave animation and the roll run after the
+// notification has closed.
+//
+// Input (SPEC section 8, M5): clicks on the span or the card go to
+// Notifs.click(), which applies the rules table. The pointer on the span or
+// the card pauses the note's timer (Notifs.hover()) and its marquee.
 Item {
     id: root
 
     // The bar of the same output: its clock box, the end of its left
     // section and the start of its tray place the span.
     property var bar: null
+    // The output's name: this view's key for the hover pause.
+    property string output: ""
+    // Device pixel ratio of the window, for the card's thumbnail.
+    property real dpr: 1
     // Debug (`debug noteHold`): wait at the first and at the last frame.
     property bool hold: false
-    // Pauses the marquee (hover, M5).
-    property bool paused: false
+    // The pointer is on the span or the card. Never while idle, so that a
+    // stale hover cannot hold a note on display.
+    readonly property bool hovered: active && (noteMouse.containsMouse || card.hovered)
+    // Pauses the marquee.
+    readonly property bool paused: hovered
+    // Every click on the drawn content (the overlay counts them for tests).
+    signal clicked
 
     // "idle" (unmapped), "first" (mapped, the first frame shows the bar's
     // clock box), "opening", "open", "closing", "last" (the last frame shows
@@ -43,6 +60,7 @@ Item {
 
     property real c: 0
     property real w: 0
+    property real r: 0
 
     // The line on display and the one that rolls out (or in, during a roll).
     property Line front: lineA
@@ -70,18 +88,34 @@ Item {
     readonly property real regionX: spanX + compactW + sepW
     readonly property real regionW: Math.max(0, spanEnd - regionX)
 
-    // What the overlay's input mask covers: everything drawn.
+    // What the overlay's input mask covers: everything drawn in the strip,
+    // and the card above it (an empty item while the card is down).
     readonly property Item hitArea: hit
+    readonly property Item cardHitArea: card.hitArea
+
+    // The line on display has a card: a rich notification with a picture.
+    readonly property bool cardWanted: front.snap !== null && front.snap.rich && front.snap.picture !== ""
+    // The card is on its way down (sync() waits for it).
+    readonly property bool lowering: cardAnim.running && cardAnim.to === 0
 
     height: Theme.barHeight
 
     // ---- state machine ----
 
     function sync(): void {
+        // The card falls first, then this runs again (lowerCard).
+        if (lowering)
+            return;
         const next = Notifs.current;
         if (next === entry) {
             if (next && (phase === "closing" || phase === "last"))
                 open();
+            return;
+        }
+        // The line changes or the note leaves: the card goes down first. A
+        // rich note replaced through the synchronous tag keeps it up.
+        if (r > 0 && !(next && next.replaced && snapOf(next).rich)) {
+            lowerCard();
             return;
         }
         if (!next) {
@@ -97,6 +131,7 @@ Item {
                 c = 1;
                 w = 1;
                 phase = "open";
+                raiseCard(true);
             } else {
                 c = 0;
                 w = 0;
@@ -107,14 +142,29 @@ Item {
                 });
             }
         } else {
-            if (w > 0 && !next.replaced)
+            if (w > 0 && !next.replaced) {
                 roll(snapOf(next));
-            else
+            } else {
                 show(front, snapOf(next));
+                // In place: the card shows the new picture, or rises now.
+                if (r > 0)
+                    card.snap = front.snap;
+                else
+                    raiseCard();
+            }
             if (phase === "closing" || phase === "last")
                 open();
         }
+        prefetchCard();
         syncProgress();
+    }
+
+    // The card's picture loads in the background while the span opens or
+    // the line rolls in, so that the card can rise as soon as they end.
+    // Decoding a screenshot takes 150 to 350 ms (M5 findings).
+    function prefetchCard(): void {
+        if (r === 0 && !lowering)
+            card.snap = cardWanted ? front.snap : null;
     }
 
     function open(): void {
@@ -131,9 +181,11 @@ Item {
         if (phase === "idle" || phase === "closing" || phase === "last")
             return;
         openAnim.stop();
+        // Closing before the roll completes, so that its end does not
+        // raise the card again.
+        phase = "closing";
         if (rollAnim.running)
             rollAnim.complete();
-        phase = "closing";
         closeW.from = w;
         closeW.duration = Motion.noteRetract * w;
         closeC.from = c;
@@ -153,11 +205,63 @@ Item {
         phase = "idle";
         entry = null;
         progressAnim.stop();
+        cardAnim.stop();
+        r = 0;
+        card.snap = null;
         lineA.snap = null;
         lineB.snap = null;
         front = lineA;
         back = lineB;
     }
+
+    // ---- the rich card ----
+
+    // Once the span is open and no roll runs: the card of the line on
+    // display slides up from behind the strip (`instant` for a reload
+    // survivor). It waits for its picture to load.
+    function raiseCard(instant: bool): void {
+        if (phase !== "open" || rollAnim.running || lowering || !cardWanted)
+            return;
+        card.snap = front.snap;
+        if (!card.ready || r >= 1)
+            return;
+        cardAnim.stop();
+        if (instant) {
+            r = 1;
+            return;
+        }
+        cardAnim.to = 1;
+        cardAnim.duration = Motion.cardRise * (1 - r);
+        cardAnim.easing.type = Motion.cardRiseEasing;
+        cardAnim.start();
+    }
+
+    // The card slides back behind the strip, then sync() runs again for
+    // whatever changed meanwhile.
+    function lowerCard(): void {
+        if (lowering)
+            return;
+        cardAnim.stop();
+        cardAnim.to = 0;
+        cardAnim.duration = Motion.cardFall * r;
+        cardAnim.easing.type = Motion.cardFallEasing;
+        cardAnim.start();
+    }
+
+    // ---- input ----
+
+    function click(button: int): void {
+        root.clicked();
+        Notifs.click(entry, button === Qt.RightButton ? "right" : button === Qt.MiddleButton ? "middle" : "left");
+    }
+
+    // Settled once per event loop turn: moving from the span to the card
+    // leaves one and enters the other in the same turn.
+    onHoveredChanged: Qt.callLater(root.reportHover)
+    function reportHover(): void {
+        Notifs.hover(output, hovered);
+    }
+    Component.onDestruction: Notifs.hover(output, false)
 
     // Debug: continue after a hold at the first or the last frame.
     function release(): void {
@@ -220,8 +324,26 @@ Item {
         return icon ? Quickshell.iconPath(icon, true) : "";
     }
 
+    // The card's picture at full size: `notify-send -i <file>` arrives as
+    // image://icon/<path>, which is loaded from the file itself. Other
+    // images (image-data) keep their URL. An absolute appIcon path is the
+    // other source rich mode accepts (Rules.hasImage).
+    function pictureOf(d: var): string {
+        const image = d.image || "";
+        const file = path => "file://" + path.split("/").map(encodeURIComponent).join("/");
+        if (image.startsWith("image://icon//"))
+            return file(image.slice("image://icon/".length));
+        if (image)
+            return image;
+        const icon = d.icon || "";
+        if (icon.startsWith("file://"))
+            return icon;
+        return icon.startsWith("/") ? file(icon) : "";
+    }
+
     function snapOf(e: var): var {
         const d = e.data;
+        const rich = e.cls.kind === "rich";
         return {
             id: d.id,
             icon: iconOf(d),
@@ -229,7 +351,9 @@ Item {
             summary: Markup.line(d.summary),
             body: Markup.body(d.body),
             critical: e.cls.kind === "critical",
-            background: e.cls.background || "base01"
+            background: e.cls.background || "base01",
+            rich: rich,
+            picture: rich ? pictureOf(d) : ""
         };
     }
 
@@ -258,8 +382,16 @@ Item {
     function refresh(): void {
         if (entry && !entry.closed) {
             const snap = snapOf(entry);
-            if (JSON.stringify(snap) !== JSON.stringify(front.snap))
+            if (JSON.stringify(snap) !== JSON.stringify(front.snap)) {
                 front.snap = snap;
+                // The card follows: new picture, down without one, up with one.
+                if (r > 0 && cardWanted)
+                    card.snap = snap;
+                else if (r > 0)
+                    lowerCard();
+                else
+                    raiseCard();
+            }
         }
         syncProgress();
     }
@@ -332,7 +464,10 @@ Item {
             easing.type: Motion.noteWipeEasing
         }
         ScriptAction {
-            script: root.phase = "open"
+            script: {
+                root.phase = "open";
+                root.raiseCard();
+            }
         }
     }
 
@@ -359,6 +494,8 @@ Item {
 
     ParallelAnimation {
         id: rollAnim
+        // The card of the new line rises once it is in place.
+        onFinished: root.raiseCard()
         NumberAnimation {
             id: rollOut
             property: "y"
@@ -390,6 +527,17 @@ Item {
         target: root
         property: "progress"
         to: 0
+    }
+
+    // The card, up or down (raiseCard, lowerCard).
+    NumberAnimation {
+        id: cardAnim
+        target: root
+        property: "r"
+        onFinished: {
+            if (cardAnim.to === 0)
+                root.sync();
+        }
     }
 
     // Critical: the glow pulses while the note shows.
@@ -567,8 +715,27 @@ Item {
         }
     }
 
+    // The rich card, in the overlay's upper 72 px, at the note region's
+    // left edge. It belongs to the note: same clicks, same hover.
+    RichView {
+        id: card
+        visible: root.active
+        x: root.regionX
+        y: -Theme.cardHeight
+        up: root.r
+        dpr: root.dpr
+        maxWidth: root.regionW
+        onClicked: button => root.click(button)
+        // A picture that loads after the wipe ended (a reload survivor's
+        // card comes back without the animation).
+        onReadyChanged: {
+            if (ready)
+                root.raiseCard(root.entry !== null && root.entry.restored);
+        }
+    }
+
     // Everything drawn: the cover over the bar's clock, the clock and the
-    // region up to its current edge.
+    // region up to its current edge. It takes the clicks and the hover.
     Item {
         id: hit
         readonly property real x0: Math.min(root.fullX, clockBox.x)
@@ -576,6 +743,14 @@ Item {
         x: x0
         width: root.active ? x1 - x0 : 0
         height: Theme.barHeight
+
+        MouseArea {
+            id: noteMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+            onClicked: event => root.click(event.button)
+        }
     }
 
     // ---- debug ----
@@ -625,7 +800,21 @@ Item {
             progress: progress,
             critical: critical,
             pulse: pulseAnim.running,
-            glow: glow
+            glow: glow,
+            hovered: hovered,
+            // The card in window coordinates (the strip starts at y 72).
+            card: {
+                r: r,
+                wanted: cardWanted,
+                ready: card.ready,
+                lowering: lowering,
+                picture: card.snap ? card.snap.picture : "",
+                x: card.x,
+                y: card.card.y,
+                width: card.card.width,
+                height: card.height - card.card.y,
+                hit: card.hitArea.width
+            }
         };
     }
 
@@ -662,6 +851,10 @@ Item {
             IconImage {
                 y: (Theme.barHeight - 16) / 2
                 implicitSize: 16
+                // A screenshot file decodes in full before it is scaled:
+                // off the GUI thread, so that a roll does not stall. The
+                // 16 px stay reserved while it loads.
+                asynchronous: true
                 visible: source.toString() !== "" && status !== Image.Error
                 source: line.snap ? line.snap.icon : ""
             }

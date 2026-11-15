@@ -8,8 +8,8 @@ import qs.bar
 // It is mapped only while it has something to show, and its input mask
 // covers only what it draws.
 //
-// The OSD is OsdView (M3). Notes, criticals and (until M5) rich
-// notifications show in NoteView (M4).
+// The OSD is OsdView (M3). Notes, criticals and rich notifications show in
+// NoteView (M4), the rich card above the span in RichView (M5).
 //
 // `mode` keeps the M0 spike content for tests: "strip" (base0D over the
 // whole bar), "part" (the middle third), "handoff" (the idle clock box).
@@ -60,9 +60,15 @@ PanelWindow {
     color: "transparent"
     visible: showing
     // Only what takes clicks: the OSD while it has an entry, else the note
-    // span (empty while no note shows). A fading OSD takes no clicks.
+    // span (empty while no note shows). A fading OSD takes no clicks. The
+    // rich card adds its part above the strip (empty while it is down);
+    // the rest of the upper 72 px never takes clicks.
     mask: Region {
         item: win.mode !== "off" ? spike : osdView.entry !== null ? osdView : noteView.hitArea
+
+        Region {
+            item: noteView.cardHitArea
+        }
     }
 
     WlrLayershell.layer: WlrLayer.Overlay
@@ -79,6 +85,12 @@ PanelWindow {
         anchors.bottom: parent.bottom
         bar: win.bar
         hold: win.noteHold
+        output: win.modelData.name
+        dpr: win.devicePixelRatio
+        onClicked: {
+            win.clicks += 1;
+            console.info("overlay clicked", win.modelData.name, win.clicks);
+        }
     }
 
     // Above the note span: an OSD covers the whole bar.
@@ -110,9 +122,10 @@ PanelWindow {
         }
     }
 
+    // Spike S3/S4 only: the note view takes its own clicks.
     MouseArea {
-        parent: win.mode !== "off" ? spike : noteView.hitArea
-        anchors.fill: parent
+        anchors.fill: spike
+        enabled: win.mode !== "off"
         onClicked: {
             win.clicks += 1;
             console.info("overlay clicked", win.modelData.name, win.clicks);
