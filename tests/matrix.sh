@@ -994,12 +994,13 @@ case_N12() {
     check "overlays ($OTHER, HEADLESS-1) mapped" "$(state "($(H2)['visible'], $H1['visible'])")" "(True, False)" || f=1
 
     echo "  an OSD on HEADLESS-1 leaves the note on $OTHER running"
-    osd_on 30 1500 > /dev/null
+    # 3 s: the same-tag update below has to find this OSD still up.
+    osd_on 30 3000 > /dev/null
     sleep 0.3
     check "OSD on the focused output" "$(notif "d['osd']['output']")" HEADLESS-1 || f=1
     check "note on $OTHER keeps running" "$(notif "d['note']['running']")" True || f=1
     focus_other
-    osd_on 40 1500 > /dev/null
+    osd_on 40 3000 > /dev/null
     sleep 0.3
     check "same-tag update stays where the OSD started" "$(notif "(d['osd']['output'], d['osd']['value'])")" "('HEADLESS-1', 40)" || f=1
     e1=$(state "$(H2)['osd']['entries']")

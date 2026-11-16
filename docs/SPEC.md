@@ -235,7 +235,7 @@ Sway bindings (decision D3), installed at cutover from `packaging/sway-bindings.
 - Every color in the views comes from the theme service, and no view contains a raw hex value.
 - Startup mode: the output of `darkman get` (through `Process`). darkman may not be up yet at login, so if that fails, the last mode stored in `state.json` (key `themeMode`) applies, then `dark`. Every applied mode is written back to that key.
 - Transitions: a new darkman hook, `~/.local/share/darkman/bar.sh`, calls `quickshell ipc --any-display -p ~/.local/share/bar call theme set "$1"`. darkman is a systemd user service and may lack `WAYLAND_DISPLAY` when it starts at login, and `quickshell ipc` only sees instances on the caller's display without `--any-display`. The `-p` path already selects the live instance only. The hook exits quietly when bar is not running.
-- A theme change only changes the bound color properties. It never calls `Quickshell.reload()`, which would unmap the bar. During an OSD or a note it maps nothing, runs no entry, and every frame shows one palette, with the bar and the overlay switching in the same frame (matrix case TH). The colors change at once, without a crossfade.
+- A theme change only changes the bound color properties. It never calls `Quickshell.reload()`, which would unmap the bar. During an OSD or a note it maps nothing, runs no entry, and every frame shows one palette, with the bar and the overlay switching in the same frame (matrix case TH). The colors change at once, without a crossfade (M6 choice, Q20).
 
 ## 11. Outputs
 
