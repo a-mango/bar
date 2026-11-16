@@ -29,7 +29,9 @@ PanelWindow {
     // For tests (`debug state`): the serial number given at creation (in
     // shell.qml), how often a backing window was connected, and how often
     // it stopped being visible. The bar is never unmapped, so the last two
-    // stay at 1 and 0 for the life of the bar.
+    // keep their values from creation: Quickshell connects a new window
+    // twice (once after a hot reload, which hands the old window over),
+    // and hides stays at 0.
     property int serial: 0
     property int connects: 0
     property int hides: 0

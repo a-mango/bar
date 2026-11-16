@@ -358,6 +358,15 @@ Done when:
 - `create_output` and `unplug` while a note is visible leave no error in the Quickshell log, and the remaining bar keeps its exclusive zone.
 - `call theme set light` during an OSD changes colors without unmapping anything (the workspace rect height does not change).
 
+Status (2026-11-16, branch `m6-outputs`): the whole matrix passes on a fresh session, 33 cases with exit status 0 in 7 min 25 s at commit `7c40c0a` (`.test/logs/m6/matrix.log`). The commits after it change only docs and a comment. `make test` passes 37 tests (`.test/logs/m6/make-test.log`), and `make lint` shows the same 9 warnings as `main`, all from the Quickshell type files (`.test/logs/m6/lint.log`). The windows were already one bar and one overlay per screen through `Variants`, with workspaces per output, since M2. M6 adds the placement of each notification on an output, the move off an unplugged output, the guards for the teardown, and three matrix cases. The checks, one by one:
+
+- N12: with the focus on the second output (1920x1080, scale 1), a note maps only that output's overlay. HEADLESS-1 keeps its idle clock box. When the focus moves back, the note stays where it is. An OSD on HEADLESS-1 does not pause it: it closed after 9.07 s for a 9 s timeout. A same-tag OSD update after the focus moved stays on HEADLESS-1. The note queued behind it shows on HEADLESS-1, the output focused when it takes the span (`.test/shots/N12/`).
+- Hotplug (case HP): `create_output` and an unplug while a note shows on HEADLESS-1, then an unplug of the output that shows a critical and an OSD. Nothing reaches the Quickshell log. The HEADLESS-1 bar keeps its serial, connects and hides through all three steps, and its workspace stays 1176 px high. The new output gets its own bar with its own workspaces, and its overlay never maps. The critical and the OSD move to HEADLESS-1 together, with one overlay map, the critical paused under the OSD and running again after it. Once the second output is gone, only the HEADLESS-1 windows remain (`.test/shots/HP/`).
+- Theme (case TH): `theme set light` during a 15 s OSD maps nothing, runs no entry and no update. The strip stays opaque at 60 %, its empty part and its label turn light base00, and the bar keeps its counters and its 1176 px workspace. The same holds during a note, and back to dark. In both frame series, every frame shows one palette, and the bar and the overlay switch in the same frame (`.test/shots/m6/TH-osd-frames.png`, `TH-note-frames.png`).
+- `.test/shots/m6/overview.png` stacks the key shots for review.
+
+Q16 to Q19 in section 8 list the choices M6 made.
+
 ### M7: polish
 
 Tasks:
@@ -641,7 +650,7 @@ Measured in the nested session on 2026-11-14 (evidence in `.test/logs/m4/` and `
 
 Measured in the nested session on 2026-11-16 (logs in `.test/logs/m6/`, shots in `.test/shots/<case>/`).
 
-- **Windows across a hotplug.** `Variants` over `Quickshell.screens` keeps the bar and overlay instances of the outputs that stay. Through `create_output`, two unplugs and three theme switches, the bar of HEADLESS-1 kept serial 1, one backing-window connect (`windowConnected`) and no hide (`backingWindowVisible` false), and the workspace rect stayed 1176 px high. A new output's overlay never maps while a note shows elsewhere.
+- **Windows across a hotplug.** `Variants` over `Quickshell.screens` keeps the bar and overlay instances of the outputs that stay. Through `create_output`, two unplugs and three theme switches, the bar of HEADLESS-1 kept serial 1, its count of backing-window connects (`windowConnected`) and no hide (`backingWindowVisible` false), and the workspace rect stayed 1176 px high. Quickshell emits `windowConnected` twice for every new window at a process start, the bars of new outputs included, and once after a hot reload, which hands the old window over. The count never moved after that. A new output's overlay never maps while a note shows elsewhere.
 - **Teardown after an unplug.** While the windows of an unplugged output are torn down, their `modelData` is null for a moment. `output: win.modelData.name` in `Bar.qml` logged `TypeError: Cannot read property 'name' of null` once per unplug. Both windows now read `modelData?.name ?? ""`, and case HP checks that the log stays free of warnings.
 - **No stray window after an unplug.** The compositor closes the layer surfaces of the removed output and `Variants` drops the instances. No window comes back on HEADLESS-1, so its exclusive zone stays at one bar (a second bar would have left a 1152 px workspace).
 - **Output names.** sway numbers headless outputs on from the last one created: after HEADLESS-2 is unplugged, the next `create_output` gives HEADLESS-3. In these runs a new output came right of HEADLESS-1 (x 1920, 1920x1080, scale 1) and the focus stayed on HEADLESS-1. An empty workspace on an unplugged output disappears with it.

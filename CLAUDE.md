@@ -9,7 +9,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - `tests/nested.sh run <command>`: run a command inside the nested session (`env -i`, nested display and bus). `tests/nested.sh click <x> <y> [button]` clicks at logical coordinates.
 - `tests/scene.sh setup`: workspaces 1, 2, 3 and `4:demo`, urgent 3, two fake tray items, once per session. Then `mode`, `present`, `focus-other`, `focus-main`, `plug`, `other`, `unplug`, `hover`, `tray <n> <status>`.
 - `make reference`: nested session running waybar with `docs/reference/waybar/`, screenshot of its bar (visual target)
-- `make matrix`: run the `docs/SPEC.md` test matrix against the nested session (about 5 minutes). `make matrix CASE=N5` runs one case, `CASE="N13 N18"` several.
+- `make matrix`: run the `docs/SPEC.md` test matrix against the nested session (about 7 minutes). `make matrix CASE=N5` runs one case, `CASE="N13 N18"` several.
 - `make shots`: screenshot the nested output into `.test/shots/`
 - `tests/nested.sh run tests/frames.py <dir> "<ms> run <command>" "<ms> shot" ...`: frame series. Commands and region shots on a schedule, each shot stamped with its frame time, plus `<dir>/sheet.png` and `frames.json`
 - `make log`: follow the nested Quickshell log
