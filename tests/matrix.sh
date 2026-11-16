@@ -10,7 +10,11 @@
 # the OSD frame series (N5, N6, tests/frames.py), B7 for the OSD, RP (rapid
 # presses) and ON (an OSD over a note). M4 adds N2, N4, N15, N16, the frame
 # series of N1 to N4 and N15 (tests/strip-frames.py), HO (handoff), NW (note
-# width beside a long mode name) and CPU (idle cost).
+# width beside a long mode name) and CPU (idle cost). M5 adds N7 (rich card
+# and the screenshot.sh outcomes through real clicks), N17 (notes held
+# during fullscreen), the screenshot and plain-note parts of B7, HV (hover
+# pause) and CL (clicks per the rules table). Clicks leave the pointer
+# where they landed, so reset_notifs parks it away from the bar.
 # The B cases, the OSD cases and the note view cases set up tests/scene.sh
 # once per session. N16 and END run last, in that order. N16 compares with a
 # screenshot taken before the first case.
@@ -22,6 +26,8 @@ n() { "$REPO/tests/nested.sh" run "$@"; }             # a command inside the ses
 ipc() { n quickshell ipc -p "$REPO" call "$@"; }      # an IPC call to bar
 scene() { "$REPO/tests/scene.sh" "$@"; }
 click() { "$REPO/tests/nested.sh" click "$@"; }
+# The pointer away from the bar: on a note it pauses the timer (M5).
+park() { scene hover 960 600; }
 px() { "$REPO/tests/pixel.py" "$@"; }
 
 # Screenshot of HEADLESS-1 into .test/shots/<case>/<name>.png; prints the path.
@@ -62,6 +68,15 @@ focused_ws() { n swaymsg -t get_workspaces | python3 -c 'import json,sys; print(
 # second physical row of the bar, above any text.
 TOP=1176.5
 MID=1188
+
+# The test client's darkmagenta, as grim sees it.
+CLIENT="#8b008b"
+# A 1920x1200 picture for screenshot notes, made once per session.
+shot_png() {
+    local png=$T/demo-screenshot.png
+    [ -e "$png" ] || n magick -size 1920x1200 gradient:steelblue-plum -fill white -pointsize 160 -gravity center -annotate 0 demo "$png"
+    echo "$png"
+}
 
 # Center of tray icon <index> of <count>: icons 16 px, 14 px apart, 7 px
 # from the right edge.
@@ -205,11 +220,11 @@ case_B6() {
     check "wait-sni-ready (the script exits 0 on failure too)" "$(grep -c 'Successfully waited for org.kde.StatusNotifierHost' <<< "$out")" 1
 }
 
-# The OSD part of B7 (M3): a fullscreen client covers the bar, a volume OSD
-# draws above it. The screenshot note and the held plain note come with M5
-# (decision D5).
+# B7: a fullscreen client covers the bar. A volume OSD (M3) and a
+# screenshot note with its card draw above it, a plain note waits in the
+# queue until fullscreen ends (M5, decision D5).
 case_B7() {
-    local f=0 s client="#8b008b" # the test client's darkmagenta
+    local f=0 s client=$CLIENT out p plain x
     prepare
     reset_notifs
     n swaymsg -q '[title="client-2"] fullscreen enable'
@@ -224,7 +239,39 @@ case_B7() {
     check "OSD empty part above the client" "$(px "$s" color 1900 $TOP)" "$(palette base00)" || f=1
     more "OSD label above the client (base00 over the fill)" "$(px "$s" count "$(palette base00)" 900 1177 1020 1199)" 50 || f=1
     check "client still shown above the bar rows" "$(px "$s" color 960 1170)" "$client" || f=1
+    ipc notify dismiss
+    wait_unmapped
+
+    echo "  a screenshot note, then a plain note, over the fullscreen client"
+    out=$T/logs/B7-screenshot.out
+    n "$REPO/tests/fake-screenshot.sh" "$(shot_png)" > "$out" 2>&1 &
+    p=$!
+    sleep 1.3
+    plain=$(send "Held note" "fictional note behind a fullscreen client")
+    sleep 0.3
+    s=$(shot B7 screenshot)
+    check "screenshot note on display over fullscreen" "$(notif "(d['current']['app'], d['kind'], d['fullscreen'])")" "('screenshot', 'rich', True)" || f=1
+    check "screenshot note line above the client (base01)" "$(px "$s" color 1000 1179)" "$(palette base01)" || f=1
+    x=$(view "round(v['card']['x'])")
+    check "card above the client (base01 frame)" "$(px "$s" color $((x + 1)) 1105)" "$(palette base01)" || f=1
+    more "card thumbnail above the client" "$(px "$s" ink $((x + 4)) 1108 $((x + 90)) 1172)" 50 || f=1
+    check "plain note held in the queue" "$(notif "d['held']")" "[$plain]" || f=1
+    check "counter for the held note" "$(view "v['counter']")" "+1" || f=1
+    # A left click dismisses the screenshot note: notify-send prints nothing.
+    click 1000 $MID
+    park
+    wait "$p" || true
+    check "screenshot dismissed by a left click, nothing printed" "$(wc -c < "$out")" 0 || f=1
+    wait_unmapped
+    s=$(shot B7 held)
+    check "plain note still held, nothing on display" "$(notif "(d['note'], d['held'])")" "(None, [$plain])" || f=1
+    check "overlay unmapped while the note is held" "$(mapped_h1)" False || f=1
+    check "bar rows still show the client" "$(px "$s" color 1000 1179)" "$client" || f=1
     n swaymsg -q '[title="client-2"] fullscreen disable'
+    sleep 1
+    s=$(shot B7 after-fullscreen)
+    check "plain note on display once fullscreen ends" "$(notif "d['current']['summary']")" "Held note" || f=1
+    check "plain note drawn (base01)" "$(px "$s" color 1000 1179)" "$(palette base01)" || f=1
     reset_notifs
     return $f
 }
@@ -275,6 +322,8 @@ wait_unmapped() {
 # Every case starts and ends with nothing on display and DND off. The
 # overlays unmap only once their leave animations have ended.
 reset_notifs() {
+    # The pointer left on the span by a click would pause the next note (M5).
+    park
     ipc notify dismissAll
     ipc notify setDnd false
     ipc debug slow 1
@@ -529,7 +578,9 @@ case_N8() {
     sleep 5
     bus_stop
     closed_check "hidden note" "$id" "Quiet note" 1 5.0 || f=1
-    check "history grew by one" "$(notif "d['history']")" $((h0 + 1)) || f=1
+    # The list keeps the last 20: a full matrix run fills it before N8.
+    check "history grew by one, up to 20" "$(notif "d['history']")" $((h0 < 20 ? h0 + 1 : 20)) || f=1
+    check "newest history entry" "$(notif "d['newest']")" "Quiet note" || f=1
     reset_notifs
     return $f
 }
@@ -758,8 +809,9 @@ case_N4() {
     more "pulse visible near the leading edge (frames 0 and 800 ms)" "$(px "$T/shots/N4/pulse-00000.png" diff "$T/shots/N4/pulse-00800.png" 1830 0 1866 24)" 10 || f=1
     sleep 6
     check "still on display after 10 s (stays until clicked)" "$(notif "(d['current']['id'], d['kind'])")" "($id, 'critical')" || f=1
-    # Clicks arrive with M5: dismiss through IPC.
-    ipc notify dismiss
+    # No default action: a left click dismisses it (M5).
+    click 1000 $MID
+    park
     wait_unmapped
     bus_stop
     check "dismissed: NotificationClosed reason" "$(closed "$id" "Battery low" | cut -d' ' -f1)" 2 || f=1
@@ -789,6 +841,7 @@ case_N15() {
     click 960 $MID; sleep 0.3
     check "a click on the span reaches the overlay" "$(state "d['overlays'][0]['clicks']")" $((c0 + 1)) || f=1
     check "and not the bar's clock under it (no seconds)" "$(state "$(bar1)['clock']['seconds']")" False || f=1
+    check "the left click dismissed the note (no default action, M5)" "$(notif "d['note']")" None || f=1
     n swaymsg -q workspace 2
     urgent_again
     reset_notifs
@@ -1109,6 +1162,286 @@ case_ON() {
     n swaymsg -q workspace 2
     c2=$(osd_counts)
     counts_check "OSD over the note, whole case" "$c0" "$c2" 0 1 0 || f=1
+    reset_notifs
+    return $f
+}
+
+# ---- rich mode and input (M5) -------------------------------------------
+
+# One run of tests/fake-screenshot.sh in the background: SHOT_OUT is its
+# output file, SHOT_PID its process, SHOT_ID the notification on display.
+screenshot_start() {
+    SHOT_OUT=$T/logs/$1.out
+    n "$REPO/tests/fake-screenshot.sh" "$(shot_png)" > "$SHOT_OUT" 2>&1 &
+    SHOT_PID=$!
+    sleep 1.3
+    SHOT_ID=$(notif "d['current']['id'] if d['current'] else 0")
+}
+# Waits (12 s at most) for the run to exit: "exited" or "running".
+screenshot_wait() {
+    for _ in $(seq 120); do kill -0 "$SHOT_PID" 2> /dev/null || break; sleep 0.1; done
+    kill -0 "$SHOT_PID" 2> /dev/null && echo running || { wait "$SHOT_PID" 2> /dev/null || true; echo exited; }
+}
+reason() { closed "$1" "$2" | cut -d' ' -f1; }
+
+# N7 (SPEC section 12, decision D1): the screenshot note with its card, and
+# the three outcomes of screenshot.sh through real clicks: a right click
+# prints discard, a left click and the 10 s timeout print nothing.
+case_N7() {
+    local f=0 s x y w h png
+    prepare
+    reset_notifs
+    png=$(shot_png)
+    bus_start N7
+
+    echo "  right click on the card: prints discard"
+    screenshot_start N7-right
+    check "screenshot note on display" "$(notif "(d['current']['app'], d['kind'])")" "('screenshot', 'rich')" || f=1
+    check "card up, picture loaded" "$(view "(v['card']['r'], v['card']['ready'])")" "(1, True)" || f=1
+    read -r x y w h <<< "$(view "' '.join(str(round(v['card'][k])) for k in ('x', 'y', 'width', 'height'))")"
+    check "card at the note region's left edge, the 72 px above the strip" "$x $y $h" "$(view "round(v['region']['x'])") 0 72" || f=1
+    check "card width: a 64 px high 16:10 thumbnail + 2 x 4 px (110 +- 1)" "$(python3 -c "print(abs($w - 110.4) <= 1)")" True || f=1
+    s=$(shot N7 card)
+    check "card frame (base01) above the strip" "$(px "$s" color $((x + 1)) 1105)" "$(palette base01)" || f=1
+    more "thumbnail drawn in the card" "$(px "$s" ink $((x + 4)) 1108 $((x + w - 4)) 1172)" 50 || f=1
+    check "beside the card: the window" "$(px "$s" color $((x + w + 20)) 1140)" "$CLIENT" || f=1
+    check "note line below the card (base01)" "$(px "$s" color 1000 1179)" "$(palette base01)" || f=1
+    click $((x + w / 2)) 1140 button3
+    park
+    check "right click: notify-send exited" "$(screenshot_wait)" exited || f=1
+    check "right click: printed" "$(cat "$SHOT_OUT")" discard || f=1
+    check "right click: NotificationClosed reason" "$(reason "$SHOT_ID" "Screenshot saved")" 2 || f=1
+    wait_unmapped
+
+    echo "  left click on the note line: prints nothing"
+    screenshot_start N7-left
+    click 1000 $MID
+    park
+    check "left click: notify-send exited" "$(screenshot_wait)" exited || f=1
+    check "left click: printed nothing" "$(wc -c < "$SHOT_OUT")" 0 || f=1
+    check "left click: NotificationClosed reason" "$(reason "$SHOT_ID" "Screenshot saved")" 2 || f=1
+    wait_unmapped
+
+    echo "  no click: the 10 s timeout prints nothing"
+    screenshot_start N7-timeout
+    check "timeout: notify-send exited" "$(screenshot_wait)" exited || f=1
+    check "timeout: printed nothing" "$(wc -c < "$SHOT_OUT")" 0 || f=1
+    bus_stop
+    closed_check "timeout" "$SHOT_ID" "Screenshot saved" 1 10.0 || f=1
+    check "one ActionInvoked on the bus, discard" "$("$REPO/tests/buslog.py" "$BUSLOG" | grep -c "action")" 1 || f=1
+    wait_unmapped
+
+    echo "  frame series: the card rises after the wipe, falls before the leave"
+    frames N7/card "0 run notify-send -a screenshot -i $png -t 10000 'Screenshot saved' 'demo-screenshot.png. Right click to discard'" \
+        "0 shot" "560 shot" "700 shot" "900 shot" "1500 run quickshell ipc -p $REPO call notify dismiss" \
+        "1500 shot" "1700 shot" "1900 shot" "2100 shot" "2400 shot" "2800 shot"
+    echo "  frames: $FD/sheet.png ($(frame_times))"
+    check "560 ms: wipe still running, no card" "$(px "$FD/t0560.png" color $((x + 50)) 36)" "$CLIENT" || f=1
+    check "900 ms: card up" "$(px "$FD/t0900.png" color $((x + 1)) 1)" "$(palette base01)" || f=1
+    check "1500 ms: card still up" "$(px "$FD/t1500.png" color $((x + 1)) 1)" "$(palette base01)" || f=1
+    check "1900 ms: card down" "$(px "$FD/t1900.png" color $((x + 50)) 10)" "$CLIENT" || f=1
+    check "1900 ms: the note still open while the card is down" "$(px "$FD/t1900.png" color 1300 84)" "$(palette base01)" || f=1
+    wait_unmapped
+    reset_notifs
+    return $f
+}
+
+# N17 (decision D5): a plain note sent during fullscreen waits in the queue.
+# Fullscreen off after 10 s: it shows then. Off after 35 s: it expired into
+# history at 30 s and nothing appears.
+case_N17() {
+    local f=0 id ta toff s h0
+    prepare
+    reset_notifs
+    bus_start N17
+    echo "  fullscreen off after 10 s"
+    n swaymsg -q '[title="client-2"] fullscreen enable'
+    sleep 0.5
+    ta=$(date +%s.%N)
+    id=$(send "Held note" "fictional note during a film")
+    sleep 1
+    check "fullscreen on the focused output" "$(notif "d['fullscreen']")" True || f=1
+    check "held in the queue, nothing on display" "$(notif "(d['note'], d['held'])")" "(None, [$id])" || f=1
+    check "overlay unmapped" "$(mapped_h1)" False || f=1
+    s=$(shot N17 held)
+    check "bar rows show the client" "$(px "$s" color 1000 1179)" "$CLIENT" || f=1
+    until_t "$ta" 10
+    toff=$(date +%s.%N)
+    n swaymsg -q '[title="client-2"] fullscreen disable'
+    sleep 1
+    check "on display after fullscreen ends" "$(notif "d['current']['summary']")" "Held note" || f=1
+    s=$(shot N17 shown)
+    check "note drawn (base01)" "$(px "$s" color 1000 1179)" "$(palette base01)" || f=1
+    until_t "$toff" 5.5
+    closed_check "5 s after it showed" "$id" "Held note" 1 "$(python3 -c "print(f'{$toff - $ta + 5.0:.2f}')")" 0.4 || f=1
+    wait_unmapped
+
+    echo "  fullscreen off after 35 s"
+    h0=$(notif "d['history']")
+    n swaymsg -q '[title="client-2"] fullscreen enable'
+    sleep 0.5
+    ta=$(date +%s.%N)
+    id=$(send "Held too long" "fictional note during a long film")
+    until_t "$ta" 29
+    check "29 s: still held" "$(notif "(d['note'], d['held'])")" "(None, [$id])" || f=1
+    until_t "$ta" 31
+    check "31 s: gone from the queue" "$(notif "(d['note'], d['waiting'])")" "(None, [])" || f=1
+    check "31 s: newest history entry" "$(notif "(d['history'], d['newest'])")" "($((h0 < 20 ? h0 + 1 : 20)), 'Held too long')" || f=1
+    until_t "$ta" 35
+    n swaymsg -q '[title="client-2"] fullscreen disable'
+    sleep 1
+    check "nothing appears after fullscreen ends" "$(notif "d['visible']") $(mapped_h1)" "False False" || f=1
+    bus_stop
+    closed_check "queue limit" "$id" "Held too long" 1 30.0 || f=1
+    reset_notifs
+    return $f
+}
+
+# Hover pause (SPEC section 8): the pointer on the note pauses its timer
+# and its marquee, leaving resumes both. The card counts as the note.
+case_HV() {
+    local f=0 id body o1 o2 o3 o4
+    prepare
+    reset_notifs
+    bus_start HV
+    echo "  frame series: the pointer moves onto a 3 s note at 1 s, away at 4 s"
+    frames HV/pause --region "0,1176 1920x24" \
+        "0 run notify-send -p -t 3000 'Hover check' 'the timer pauses under the pointer'" \
+        "1000 run swaymsg -q seat seat0 cursor set 1000 1188" \
+        "4000 run swaymsg -q seat seat0 cursor set 960 600" \
+        "500 shot" "900 shot" "1500 shot" "2500 shot" "3500 shot" "4500 shot" "5500 shot" "6800 shot"
+    echo "  frames: $FD/sheet.png ($(frame_times))"
+    id=$(fj "[r for r in d['runs'] if 'Hover check' in r['cmd']][0]['stdout'].strip()")
+    more "500 to 900 ms: the progress line shrinks" "$(px "$FD/t0500.png" diff "$FD/t0900.png" 206 0 1860 2)" 10 || f=1
+    check "1500 to 3500 ms: frozen under the pointer" "$(px "$FD/t1500.png" diff "$FD/t3500.png" 206 0 1860 24)" 0 || f=1
+    check "3500 ms: on display past its 3 s" "$(px "$FD/t3500.png" color 1300 12)" "$(palette base01)" || f=1
+    more "4500 to 5500 ms: shrinks again once the pointer left" "$(px "$FD/t4500.png" diff "$FD/t5500.png" 206 0 1860 2)" 10 || f=1
+    check "5500 ms: still on display" "$(px "$FD/t5500.png" color 1300 12)" "$(palette base01)" || f=1
+    check "6800 ms: gone" "$(px "$FD/t6800.png" color 1300 12)" "$(palette base00)" || f=1
+    bus_stop
+    closed_check "3 s plus the 3 s under the pointer" "$id" "Hover check" 1 6.0 || f=1
+    wait_unmapped
+
+    echo "  the marquee stands still under the pointer"
+    body=$(python3 -c 'print(("Fictional hover check with a body long enough to scroll across the span. " * 8)[:400])')
+    send -t 30000 "Hover marquee" "$body" > /dev/null
+    sleep 2.6
+    more "scrolling before the hover (offset px)" "$(view "int(v['marquee']['offset'])")" 10 || f=1
+    scene hover 1000 $MID
+    sleep 0.2
+    o1=$(view "v['marquee']['offset']")
+    sleep 1
+    o2=$(view "v['marquee']['offset']")
+    check "offset unchanged for 1 s under the pointer" "$o2" "$o1" || f=1
+    check "timer paused, hover reported" "$(notif "(d['note']['running'], d['hovered'])")" "(False, True)" || f=1
+    park
+    sleep 0.6
+    o3=$(view "v['marquee']['offset']")
+    more "scrolls again once the pointer left (px in 0.6 s)" "$(python3 -c "print(int($o3 - $o2))")" 15 || f=1
+    check "timer running again" "$(notif "(d['note']['running'], d['hovered'])")" "(True, False)" || f=1
+    reset_notifs
+
+    echo "  the card counts as the note"
+    screenshot_start HV-card
+    read -r o1 o2 <<< "$(view "f\"{round(v['card']['x'] + v['card']['width'] / 2)} {round(1104 + v['card']['y'] + 30)}\"")"
+    scene hover "$o1" "$o2"
+    sleep 0.3
+    check "pointer on the card: paused" "$(notif "(d['note']['running'], d['hovered'])")" "(False, True)" || f=1
+    scene hover 1000 $MID
+    sleep 0.3
+    check "card to note line: still paused" "$(notif "(d['note']['running'], d['hovered'])")" "(False, True)" || f=1
+    park
+    sleep 0.3
+    check "away: running" "$(notif "(d['note']['running'], d['hovered'])")" "(True, False)" || f=1
+    ipc notify dismiss
+    check "screenshot run exited" "$(screenshot_wait)" exited || f=1
+    wait_unmapped
+
+    echo "  no hover left behind when the note leaves under the pointer"
+    send -t 30000 "Hover check" "dismissed under the pointer" > /dev/null
+    sleep 1
+    scene hover 1000 $MID
+    sleep 0.3
+    check "on the note: paused" "$(notif "d['hovered']")" True || f=1
+    ipc notify dismiss
+    wait_unmapped
+    check "after the unmap: no hover" "$(notif "d['hovered']")" False || f=1
+    park
+    send -t 30000 "Hover check" "the next one runs" > /dev/null
+    sleep 1
+    check "next note: timer running" "$(notif "(d['note']['running'], d['hovered'])")" "(True, False)" || f=1
+    reset_notifs
+    return $f
+}
+
+# Clicks per the rules table (SPEC sections 5 and 8): left runs the default
+# action or dismisses, right dismisses, middle dismisses everything.
+case_CL() {
+    local f=0 out p id a b c v
+    prepare
+    reset_notifs
+    bus_start CL
+    echo "  left click on a note with a default action"
+    out=$T/logs/CL-default.out
+    n notify-send -p -A default=Open -A later=Later "Click check" "left click runs the default action" > "$out" 2>&1 &
+    p=$!
+    sleep 1
+    id=$(notif "d['current']['id']")
+    click 1000 $MID
+    park
+    wait "$p" || true
+    check "notify-send printed the default action" "$(sed -n 2p "$out")" default || f=1
+    check "closed with reason 2" "$(reason "$id" "Click check")" 2 || f=1
+    wait_unmapped
+
+    echo "  right click on a note with a default action"
+    out=$T/logs/CL-right.out
+    n notify-send -p -A default=Open "Click right" "right click only dismisses" > "$out" 2>&1 &
+    p=$!
+    sleep 1
+    id=$(notif "d['current']['id']")
+    click 1000 $MID button3
+    park
+    wait "$p" || true
+    check "no action printed" "$(sed -n 2p "$out")" "" || f=1
+    check "closed with reason 2" "$(reason "$id" "Click right")" 2 || f=1
+    wait_unmapped
+
+    echo "  left click on a critical without actions"
+    id=$(send -u critical -a demo-app "Click critical" "left click dismisses")
+    sleep 1
+    click 1000 $MID
+    park
+    sleep 0.3
+    check "critical closed with reason 2" "$(reason "$id" "Click critical")" 2 || f=1
+    wait_unmapped
+
+    echo "  middle click: the note and the whole queue"
+    a=$(send "Click middle" "first of three")
+    b=$(send "Click middle" "second of three")
+    c=$(send "Click middle" "third of three")
+    sleep 1
+    check "two waiting" "$(notif "d['queued']")" 2 || f=1
+    click 1000 $MID button2
+    park
+    sleep 0.3
+    for v in "$a" "$b" "$c"; do
+        check "note $v closed with reason 2" "$(reason "$v" "Click middle")" 2 || f=1
+    done
+    check "nothing left" "$(notif "d['tracked']")" 0 || f=1
+    wait_unmapped
+
+    echo "  middle click on an OSD over a note"
+    a=$(send "Click under" "note under the OSD")
+    sleep 0.6
+    b=$(send -a volume -t 3000 -e -h int:value:50 -h string:x-canonical-private-synchronous:volume "Volume: 50%")
+    sleep 0.4
+    click 1000 $MID button2
+    park
+    sleep 0.3
+    bus_stop
+    check "OSD closed with reason 2" "$(reason "$b" "Volume: 50%")" 2 || f=1
+    check "note under it closed with reason 2" "$(reason "$a" "Click under")" 2 || f=1
     reset_notifs
     return $f
 }

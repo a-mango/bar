@@ -590,6 +590,7 @@ Singleton {
             hovered: hovered,
             hidden: hidden.length,
             history: persist.history.length,
+            newest: persist.history.length > 0 ? persist.history[0].summary : "",
             tracked: server.trackedNotifications.values.length
         });
     }
