@@ -1206,7 +1206,7 @@ reason() { closed "$1" "$2" | cut -d' ' -f1; }
 # the three outcomes of screenshot.sh through real clicks: a right click
 # prints discard, a left click and the 10 s timeout print nothing.
 case_N7() {
-    local f=0 s x y w h png
+    local f=0 s x y w h png c0
     prepare
     reset_notifs
     png=$(shot_png)
@@ -1224,6 +1224,12 @@ case_N7() {
     more "thumbnail drawn in the card" "$(px "$s" ink $((x + 4)) 1108 $((x + w - 4)) 1172)" 50 || f=1
     check "beside the card: the window" "$(px "$s" color $((x + w + 20)) 1140)" "$CLIENT" || f=1
     check "note line below the card (base01)" "$(px "$s" color 1000 1179)" "$(palette base01)" || f=1
+    # With the card up, the rest of the upper 72 px still lets clicks through.
+    c0=$(state "$H1['clicks']")
+    click $((x + w + 40)) 1140
+    park
+    sleep 0.3
+    check "a click beside the card reaches the window, not the overlay" "$(state "$H1['clicks']") $(notif "d['current']['id']")" "$c0 $SHOT_ID" || f=1
     click $((x + w / 2)) 1140 button3
     park
     check "right click: notify-send exited" "$(screenshot_wait)" exited || f=1
