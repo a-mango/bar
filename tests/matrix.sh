@@ -170,7 +170,7 @@ case_B4() {
 }
 
 case_B5() {
-    local f=0 pid count index x a b before menu box mark log
+    local f=0 pid count index x a b c before menu box mark log
     prepare
     pid=$(cat "$T/fake-sni-1.pid")
     log=$T/logs/fake-sni.log
@@ -183,9 +183,13 @@ case_B5() {
     scene tray 1 NeedsAttention; sleep 0.3
     index=$(state "[i for i, t in enumerate(d['tray']) if t['status'] == 2][0]")
     x=$(tray_x "$index" "$count")
-    a=$(shot B5 attention-1); sleep 0.5
-    b=$(shot B5 attention-2)
-    more "NeedsAttention: the background above icon $index changes" "$(px "$a" diff "$b" $((x - 8)) 1177 $((x + 8)) 1179)" 1 || f=1
+    # The blink is a fade with a 1 s period, and a full-output shot takes
+    # about half a second: two shots can land one period apart (seen in the
+    # M5 run). Three shots with unequal gaps cannot all match.
+    a=$(shot B5 attention-1); sleep 0.3
+    b=$(shot B5 attention-2); sleep 0.55
+    c=$(shot B5 attention-3)
+    more "NeedsAttention: the background above icon $index changes" "$(python3 -c "print(max($(px "$a" diff "$b" $((x - 8)) 1177 $((x + 8)) 1179), $(px "$b" diff "$c" $((x - 8)) 1177 $((x + 8)) 1179)))")" 1 || f=1
     scene tray 1 Passive; sleep 0.3
     a=$(shot B5 passive)
     check "Passive: no blink background" "$(px "$a" color $x $TOP)" "$(palette base00)" || f=1
@@ -636,6 +640,17 @@ case_N11() {
     bus_stop
     # Timer restarted at the reload: about 1 s + reload + 5 s, not 5 s.
     closed_check "survivor" "$id" "Survivor" 1 6.4 0.9 || f=1
+    wait_unmapped
+
+    echo "  a screenshot note survives with its card up (M5)"
+    screenshot_start N11-rich
+    touch "$REPO/shell.qml"
+    sleep 2
+    check "screenshot note still on display, a survivor" "$(notif "(d['current']['id'], d['note']['restored'])")" "($SHOT_ID, True)" || f=1
+    check "card back up, span open" "$(view "(v['phase'], v['w'], v['card']['r'], v['card']['ready'])")" "('open', 1, 1, True)" || f=1
+    shot N11 rich-after-reload > /dev/null
+    ipc notify dismiss
+    check "screenshot run exited" "$(screenshot_wait)" exited || f=1
     reset_notifs
     return $f
 }
@@ -838,6 +853,9 @@ case_N15() {
     check "workspace 3 focused after a click beside the note" "$(focused_ws)" 3 || f=1
     check "note still on display" "$(notif "d['current']['id']")" "$id" || f=1
     check "the overlay did not get that click" "$(state "d['overlays'][0]['clicks']")" "$c0" || f=1
+    # The upper 72 px of the overlay take no clicks without a card (M5).
+    click 700 1150; park; sleep 0.3
+    check "a click above the span reaches the window, not the overlay" "$(state "d['overlays'][0]['clicks']") $(notif "d['current']['id']")" "$c0 $id" || f=1
     click 960 $MID; sleep 0.3
     check "a click on the span reaches the overlay" "$(state "d['overlays'][0]['clicks']")" $((c0 + 1)) || f=1
     check "and not the bar's clock under it (no seconds)" "$(state "$(bar1)['clock']['seconds']")" False || f=1
