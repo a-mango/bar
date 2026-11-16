@@ -5,12 +5,16 @@ import Quickshell
 import Quickshell.I3
 import Quickshell.Io
 
-// sway state for the bar: workspaces per output and the binding mode.
-// M5 adds the fullscreen state per output (docs/SPEC.md section 11).
+// sway state for the bar: workspaces per output, the focused output and the
+// binding mode. M5 adds the fullscreen state per output (docs/SPEC.md
+// section 11).
 Singleton {
     id: root
 
     property string mode: "default"
+    // The output that has the focus, "" until sway has told. Notifications
+    // show there (Notifs.targetOutput()).
+    readonly property string focusedOutput: I3.focusedMonitor?.name ?? ""
 
     // The workspaces of one output, sorted by number, then by name.
     function workspacesOn(output: string): var {

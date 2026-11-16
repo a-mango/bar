@@ -28,6 +28,9 @@ Item {
     // The bar of the same output: its clock box, the end of its left
     // section and the start of its tray place the span.
     property var bar: null
+    // The output of the overlay window: the view shows the note that the
+    // core placed there (Notifs.noteOn()).
+    property string output: ""
     // Debug (`debug noteHold`): wait at the first and at the last frame.
     property bool hold: false
     // Pauses the marquee (hover, M5).
@@ -78,7 +81,7 @@ Item {
     // ---- state machine ----
 
     function sync(): void {
-        const next = Notifs.current;
+        const next = Notifs.noteOn(output);
         if (next === entry) {
             if (next && (phase === "closing" || phase === "last"))
                 open();
@@ -297,6 +300,10 @@ Item {
         }
         function onTimingChanged(): void {
             Qt.callLater(root.syncProgress);
+        }
+        // The note on display moved to another output (hotplug).
+        function onPlacedChanged(): void {
+            Qt.callLater(root.sync);
         }
     }
 

@@ -28,6 +28,7 @@ import "Rules.js" as Rules
 //   deadline   absolute ms of the display timeout or DND expiry, or null
 //   waitUntil  absolute ms of the queue limit, or null
 //   from       for an OSD that replaced another one: the previous value
+//   output     the screen it shows on, set when it becomes visible (M6)
 Singleton {
     id: root
 
@@ -47,6 +48,8 @@ Singleton {
     // Bumped when a display timer starts, pauses or restarts, for the
     // progress line (the entries are plain objects without signals).
     property int timing: 0
+    // Bumped when an entry on display moves to another output (hotplug).
+    property int placed: 0
     property int received: 0
 
     // ---- arrival -------------------------------------------------------
@@ -65,6 +68,7 @@ Singleton {
             deadline: null,
             waitUntil: null,
             from: null,
+            output: "",
             closed: false
         };
     }
@@ -89,7 +93,7 @@ Singleton {
         } else if (old && old === current && (critical || old.cls.kind !== "critical")) {
             // Same synchronous tag as the note on display: take its place.
             e.replaced = true;
-            show(e);
+            show(e, old.output);
             close(old, "expire");
         } else if (old && queue.includes(old) && !critical && old.cls.kind !== "critical") {
             // Same tag as a waiting note: take its place and its queue limit.
@@ -177,12 +181,15 @@ Singleton {
 
     function showOsd(e: var, old: var): void {
         const previous = osd;
-        if (previous && previous.tag !== "" && previous.tag === e.tag)
+        const same = previous && previous.tag !== "" && previous.tag === e.tag;
+        if (same)
             e.from = previous.data.value;
+        // Before the slot changes, so that the views never see the entry
+        // without its output. Same-tag updates stay where the OSD started.
+        e.output = same ? previous.output : targetOutput();
         osd = e;
         run(e);
-        if (current)
-            pause(current);
+        syncPause();
         // The replaced OSD (same tag or not) leaves for good.
         if (previous)
             close(previous, "expire");
@@ -200,7 +207,7 @@ Singleton {
                 back.waitUntil = back.cls.kind === "critical" ? null : Date.now() + queueLimit;
                 queue = [back].concat(queue);
             }
-            show(e);
+            show(e, targetOutput());
         } else {
             e.waitUntil = Date.now() + queueLimit;
             queue = queue.concat([e]);
@@ -209,11 +216,13 @@ Singleton {
         }
     }
 
-    function show(e: var): void {
+    // `output` is set before `current` changes, so that the views never see
+    // the entry without it.
+    function show(e: var, output: string): void {
         e.waitUntil = null;
+        e.output = output;
         current = e;
-        if (!osd)
-            run(e);
+        syncPause();
     }
 
     function showNext(): void {
@@ -221,7 +230,66 @@ Singleton {
             return;
         const next = queue[0];
         queue = queue.slice(1);
-        show(next);
+        show(next, targetOutput());
+    }
+
+    // The note's timer pauses while an OSD covers it, that is while the OSD
+    // shows on the same output, and runs otherwise.
+    function syncPause(): void {
+        if (!current)
+            return;
+        if (osd && osd.output === current.output)
+            pause(current);
+        else
+            run(current);
+    }
+
+    // ---- outputs ---------------------------------------------------------
+
+    // The output a notification shows on when it becomes visible: the
+    // focused one (docs/SPEC.md section 11). The first screen stands in
+    // while sway has not answered yet, or names a screen Quickshell does
+    // not know (yet).
+    function targetOutput(): string {
+        const names = Quickshell.screens.map(s => s.name);
+        return names.includes(Sway.focusedOutput) ? Sway.focusedOutput : (names[0] ?? "");
+    }
+
+    // The OSD and the note on display on one output, or null. A binding
+    // that calls them also depends on `placed`, which changes when an entry
+    // on display moves to another output.
+    function osdOn(output: string): var {
+        return placed >= 0 && osd !== null && osd.output === output ? osd : null;
+    }
+    function noteOn(output: string): var {
+        return placed >= 0 && current !== null && current.output === output ? current : null;
+    }
+
+    // Hotplug: an entry on display whose output went away moves to the
+    // target output. A critical would otherwise stay out of sight until
+    // dismissed. Entries on the remaining outputs stay where they are.
+    function retarget(): void {
+        const names = Quickshell.screens.map(s => s.name);
+        let moved = false;
+        for (const e of [osd, current]) {
+            if (e && !names.includes(e.output)) {
+                const to = targetOutput();
+                console.info("notifs: output", e.output || "(none)", "is gone, notification", e.data.id, "moves to", to || "(none)");
+                e.output = to;
+                moved = true;
+            }
+        }
+        if (moved) {
+            syncPause();
+            placed += 1;
+        }
+    }
+
+    Connections {
+        target: Quickshell
+        function onScreensChanged(): void {
+            root.retarget();
+        }
     }
 
     function run(e: var): void {
@@ -331,8 +399,7 @@ Singleton {
             queue = queue.filter(q => q !== e);
         if (osd === e) {
             osd = null;
-            if (current)
-                run(current);
+            syncPause();
         }
         if (current === e) {
             current = null;
@@ -491,6 +558,7 @@ Singleton {
             summary: e.data.summary,
             kind: e.cls.kind,
             value: e.data.value,
+            output: e.output,
             restored: e.restored,
             running: e.running,
             remaining: e.running && e.deadline !== null ? e.deadline - Date.now() : isFinite(e.remaining) ? e.remaining : -1

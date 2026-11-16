@@ -10,6 +10,9 @@ PanelWindow {
     id: win
 
     required property ShellScreen modelData
+    // The output's name. modelData turns null while the window is torn down
+    // after an unplug.
+    readonly property string output: modelData?.name ?? ""
     readonly property alias tray: tray
     readonly property alias clock: clock
     readonly property alias mode: mode
@@ -22,6 +25,19 @@ PanelWindow {
     // end of the left section and the start of the tray, 8 px gap each.
     readonly property real leftEnd: mode.visible ? mode.x + mode.width : workspaces.width
     readonly property real trayStart: tray.x
+
+    // For tests (`debug state`): the serial number given at creation (in
+    // shell.qml), how often a backing window was connected, and how often
+    // it stopped being visible. The bar is never unmapped, so the last two
+    // stay at 1 and 0 for the life of the bar.
+    property int serial: 0
+    property int connects: 0
+    property int hides: 0
+    onWindowConnected: connects += 1
+    onBackingWindowVisibleChanged: {
+        if (!backingWindowVisible)
+            hides += 1;
+    }
 
     screen: modelData
     anchors {
@@ -40,7 +56,7 @@ PanelWindow {
 
     Workspaces {
         id: workspaces
-        output: win.modelData.name
+        output: win.output
     }
 
     // waybar: 4 px margin after the workspaces, 2 px between modules.

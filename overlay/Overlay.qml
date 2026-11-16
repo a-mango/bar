@@ -18,6 +18,9 @@ PanelWindow {
     id: win
 
     required property ShellScreen modelData
+    // The output's name. modelData turns null while the window is torn down
+    // after an unplug.
+    readonly property string output: modelData?.name ?? ""
     property string mode: "off"
     // The bar of the same output (set in shell.qml): NoteView places the
     // center span from its clock, left section and tray.
@@ -78,6 +81,7 @@ PanelWindow {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         bar: win.bar
+        output: win.output
         hold: win.noteHold
     }
 
@@ -87,6 +91,7 @@ PanelWindow {
         visible: win.mode === "off" && active
         anchors.bottom: parent.bottom
         width: parent.width
+        output: win.output
         dpr: win.devicePixelRatio
     }
 
@@ -115,7 +120,7 @@ PanelWindow {
         anchors.fill: parent
         onClicked: {
             win.clicks += 1;
-            console.info("overlay clicked", win.modelData.name, win.clicks);
+            console.info("overlay clicked", win.output, win.clicks);
         }
     }
 }
