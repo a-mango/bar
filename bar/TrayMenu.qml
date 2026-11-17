@@ -29,6 +29,8 @@ PopupWindow {
     // The open submenu, and the row it opens from.
     property QsMenuEntry subEntry: null
     property Item subFrom: null
+    // The submenu's TrayMenu (untyped: a file cannot name itself).
+    readonly property var subMenu: sub.item
 
     readonly property var entries: opener.children ? opener.children.values : []
     readonly property bool hasMarks: entries.some(e => e.buttonType !== QsMenuButtonType.None)
@@ -182,11 +184,11 @@ PopupWindow {
         active: root.subEntry !== null && root.visible
         source: "TrayMenu.qml"
         onLoaded: {
-            item.handle = root.subEntry;
-            item.anchor.item = root.subFrom;
-            item.anchor.edges = Edges.Left | Edges.Bottom;
-            item.anchor.gravity = Edges.Left | Edges.Top;
-            item.visible = true;
+            root.subMenu.handle = root.subEntry;
+            root.subMenu.anchor.item = root.subFrom;
+            root.subMenu.anchor.edges = Edges.Left | Edges.Bottom;
+            root.subMenu.anchor.gravity = Edges.Left | Edges.Top;
+            root.subMenu.visible = true;
         }
     }
 
@@ -197,7 +199,7 @@ PopupWindow {
             root.triggered();
         }
         function onVisibleChanged(): void {
-            if (sub.item && !sub.item.visible)
+            if (root.subMenu && !root.subMenu.visible)
                 root.subEntry = null;
         }
     }

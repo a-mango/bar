@@ -18,7 +18,7 @@ Row {
     readonly property int count: items.count
     readonly property bool menuOpen: {
         for (let i = 0; i < items.count; i++)
-            if (items.itemAt(i)?.menuOpen)
+            if (root.cell(i)?.menuOpen)
                 return true;
         return false;
     }
@@ -34,7 +34,7 @@ Row {
     // the others before it opens its own.
     function closeMenus(): void {
         for (let i = 0; i < items.count; i++)
-            items.itemAt(i)?.closeMenu();
+            root.cell(i)?.closeMenu();
     }
 
     Repeater {
