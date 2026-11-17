@@ -1676,6 +1676,20 @@ case_HV() {
     sleep 1
     check "next note: timer running" "$(notif "(d['note']['running'], d['hovered'])")" "(True, False)" || f=1
     reset_notifs
+
+    # Q21 (M7): the overlay gets no pointer enter until the pointer moves,
+    # so the view asks the bar, which still holds the pointer.
+    echo "  a note that opens under a resting pointer pauses at once"
+    scene hover 1000 $MID
+    sleep 0.3
+    send -t 3000 "Hover check" "opens under the resting pointer" > /dev/null
+    sleep 1
+    check "resting pointer: paused" "$(notif "(d['note']['running'], d['hovered'])")" "(False, True)" || f=1
+    check "reported by the bar, not the overlay" "$(view "v['resting']")" True || f=1
+    park
+    sleep 0.3
+    check "pointer moved away: running" "$(notif "(d['note']['running'], d['hovered'])")" "(True, False)" || f=1
+    reset_notifs
     return $f
 }
 

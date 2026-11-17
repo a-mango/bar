@@ -45,7 +45,10 @@ Item {
     property bool hold: false
     // The pointer is on the span or the card. Never while idle, so that a
     // stale hover cannot hold a note on display.
-    readonly property bool hovered: active && (noteMouse.containsMouse || card.hovered)
+    readonly property bool hovered: active && (noteMouse.containsMouse || card.hovered || resting)
+    // The pointer rests on the bar where the span is drawn (Q21). Once it
+    // moves, the bar gets the leave and noteMouse the enter.
+    readonly property bool resting: active && bar !== null && bar.pointerOn && bar.pointerX >= hit.x && bar.pointerX < hit.x + hit.width
     // Pauses the marquee.
     readonly property bool paused: hovered
     // Every click on the drawn content (the overlay counts them for tests).
@@ -773,6 +776,7 @@ Item {
         return {
             phase: phase,
             hold: hold,
+            resting: resting,
             frameVia: frameVia,
             c: c,
             w: w,

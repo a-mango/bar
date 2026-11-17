@@ -25,6 +25,11 @@ PanelWindow {
     // end of the left section and the start of the tray, 8 px gap each.
     readonly property real leftEnd: mode.visible ? mode.x + mode.width : workspaces.width
     readonly property real trayStart: tray.x
+    // Where the pointer last moved on the bar (Q21). A note that opens
+    // under a resting pointer pauses at once: the overlay gets no pointer
+    // enter until the pointer moves, but the bar still holds it then.
+    readonly property bool pointerOn: pointer.hovered
+    readonly property real pointerX: pointer.point.position.x
 
     // For tests (`debug state`): the serial number given at creation (in
     // shell.qml), how often a backing window was connected, and how often
@@ -55,6 +60,10 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Bottom
     WlrLayershell.namespace: "bar"
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+    HoverHandler {
+        id: pointer
+    }
 
     Workspaces {
         id: workspaces
