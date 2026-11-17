@@ -397,6 +397,16 @@ Tasks:
 
 Done when: the owner signs off on the visuals.
 
+Status (2026-11-17, branch `m7-polish`), waiting for the owner's sign-off: the whole matrix passes on a fresh session, 37 cases with exit status 0 in 9 min 55 s at commit `e4db8a7` (`.test/logs/m7/matrix.log`). `make test` passes 37 tests and `make lint` exits 0 with the 10 warnings of `main` (`.test/logs/m7/`). Done with the owner over three clip rounds (`tests/clip.sh`, lossless wf-recorder clips in `.test/clips/`):
+
+- Wipe edge: the halo shader `shaders/wipe.frag`, chosen from an A/B against the `MultiEffect` glow and a trail variant (`.test/clips/ab/edge-*.mp4`). The `MultiEffect` is gone.
+- Motion: every note transition 1.2 times its SPEC starting value ("a bit slower overall", then "right now" on `.test/clips/ab/slower-*.mp4`). OSD, marquee and pulse unchanged.
+- Open questions answered: Q10 (light OSD label `base07` through `Theme.onFill`), Q15 (compact clock `HH:mm`, progress over the span, critical hierarchy), Q21 (pause at once under a resting pointer, new subcase in HV), Q26 (300 ms theme crossfade, from `.test/clips/ab/theme-fade.mp4`; TH now checks the fade and the bar and overlay in step).
+- Contrast in both themes: critical text, the urgent workspace and the mode label fixed with the owner (M7 findings). The last two now differ from the waybar reference.
+- Fixes: a missing icon file takes no room. The close lateness of a drawn note was measured (10 to 31 ms) and left as is (M7 findings).
+- Final clips at the settled values: `.test/clips/r3-final/` (`all.mp4` and one file per scene).
+- M8 note: `make install` must build the shader first (section 6, step 1).
+
 ### M8: cutover
 
 This milestone replaces waybar and mako on the live desktop. It starts only after the owner gives an explicit go-ahead in the session. See section 6.
