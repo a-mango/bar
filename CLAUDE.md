@@ -69,7 +69,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - Run everything that talks to the nested session through `tests/nested.sh run`. A plain shell still has the live `WAYLAND_DISPLAY`, `SWAYSOCK` and bus address.
 - `console.log` and `console.debug` are hidden by default. Log with `console.info`.
 - Singletons load on first use. One that must run from startup (`Notifs`, `Sway`) is named in `shell.qml`.
-- `//@ pragma` lines in `shell.qml` take effect at process start, not on a hot reload. `UseQApplication` is required by `QsMenuAnchor`. `NativeTextRendering` (decision D7) gives hinted grayscale text and the pixel-exact handoff.
+- `//@ pragma` lines in `shell.qml` take effect at process start, not on a hot reload. `UseQApplication` was required by `QsMenuAnchor`, which M7 replaced with `bar/TrayMenu.qml` (nothing needs it now). `NativeTextRendering` (decision D7) gives hinted grayscale text and the pixel-exact handoff.
 - In `PersistentProperties`, a `property var` holding a JS array or object is `undefined` after a reload. Use `property list<var>`.
 - A headless sway seat has no pointer. `seat seat0 cursor` commands only reach clients while `tests/vpointer.py` runs (the harness starts it). Keyboard tests hold a keyboard with `wtype -s 3600000` in the background.
 - sway gives an `OnDemand` layer surface the keyboard only on a click. Setting `OnDemand` after the click that opens a tray menu is too late.
@@ -89,6 +89,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - grim reads back the whole 3840x2400 output for every shot, even with `-g`. That blocks the compositor (and Quickshell) for about 80 ms. Use `tests/frames.py` for anything timed.
 - A changed `.qsb` needs a Quickshell restart (`make nested-stop`, `make nested`): after a hot reload, Qt kept the old shader for the same URL, and with a changed uniform block the halo vanished. `*.qsb` is gitignored, so run `make shaders` after a checkout.
 - wf-recorder without `-D` exits only after the next damaged frame, up to a minute on an idle bar. Clips also need lossless RGB (`libx264rgb`, crf 0): 4:2:0 turns the 2 px edge gray, and yuv444p shifts colors through the range conversion.
+- A `PopupWindow` with `grabFocus` ignores clicks on bar's own surfaces (same client): the bar closes tray menus itself. Watch presses over the bar with a `PointHandler`: a `TapHandler` on an item on top swallowed them.
 - After an edit to a singleton file alone (seen with `services/Motion.qml`), the hot reload kept the old values. Touch `shell.qml` as well.
 - A newly mapped window shows its first frame about 30 ms later, and Qt's first tick after `start()` only registers an animation. Entry animations start on the window's first `frameSwapped` (`OsdView`, `NoteView`).
 - `PanelWindow` does not expose `_backingWindow` to QML. Use an item's attached `Window.window` for `frameSwapped`.
