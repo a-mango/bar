@@ -701,7 +701,7 @@ Item {
             visible: Notifs.queued > 0
             x: root.regionW - 7 - implicitWidth
             text: "+" + Notifs.queued
-            color: root.critical ? Theme.base07 : Theme.base04
+            color: root.critical ? Theme.onCritical : Theme.base04
         }
     }
 
@@ -718,7 +718,7 @@ Item {
         Rectangle {
             width: (root.spanEnd - root.spanX) * root.progress
             height: 2
-            color: root.critical ? Theme.base07 : Theme.base03
+            color: root.critical ? Theme.onCritical : Theme.base03
         }
     }
 
@@ -899,22 +899,21 @@ Item {
             BarText {
                 visible: text !== ""
                 text: line.snap ? line.snap.app : ""
-                color: line.snap && line.snap.critical ? Theme.base07 : Theme.base04
+                color: line.snap && line.snap.critical ? Theme.onCritical : Theme.base04
                 // On a critical, the hierarchy of a note through opacity
-                // towards base08 (Q15, M7): no palette role reads on base08
-                // in both modes.
+                // towards base08 (Q15, M7), kept at 4.5:1 or more.
                 opacity: line.snap && line.snap.critical ? Theme.criticalAppOpacity : 1
             }
             BarText {
                 visible: text !== ""
                 text: line.snap ? line.snap.summary : ""
-                color: Theme.base07
+                color: line.snap && line.snap.critical ? Theme.onCritical : Theme.base07
             }
             BarText {
                 visible: text !== ""
                 textFormat: Text.StyledText
                 text: line.snap ? line.snap.body : ""
-                color: line.snap && line.snap.critical ? Theme.base07 : Theme.base05
+                color: line.snap && line.snap.critical ? Theme.onCritical : Theme.base05
                 opacity: line.snap && line.snap.critical ? Theme.criticalBodyOpacity : 1
             }
         }

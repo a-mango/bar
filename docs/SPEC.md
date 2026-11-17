@@ -62,7 +62,7 @@ Text rendering: Qt's native (FreeType) renderer, set for the whole process with 
 
 ## 3. Bar
 
-The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `make reference` screenshot of waybar in the nested session is the visual target.
+The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `make reference` screenshot of waybar in the nested session is the visual target, except for two text colors that M7 changed for contrast in both themes (the urgent workspace and the mode label below).
 
 ### Left: workspaces and mode
 
@@ -71,10 +71,10 @@ The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `ma
   - Default: `base00` background, `base05` text.
   - Visible on this output but not focused: `base02` background, `base07` text.
   - Focused: `base07` background, `base00` text.
-  - Urgent: `base08` background.
+  - Urgent: `base08` background, `Theme.onCritical` text (`#f8f8f8` in both modes, 5.4:1). waybar's `base05` gave 4.0:1 in dark mode and 2.1:1 in light mode (M7).
   - Hover: `base03` background.
 - Buttons have 5 px horizontal padding around a content box of at least 16 px, and no rounded corners. Labels are bold, as the GTK theme draws waybar's buttons. A left click activates the workspace (`I3Workspace.activate()`). Scrolling does nothing (waybar's `disable-scroll`).
-- The sway mode follows the workspaces with a 6 px gap (waybar's 4 px margin plus 2 px module spacing). It is hidden in `default`. Other modes show their name in italics, `base07` on `base04`, with 7 px padding. Source: an `I3IpcListener` subscribed to `mode` events, with the initial mode from `swaymsg -t get_binding_state` (spike S10).
+- The sway mode follows the workspaces with a 6 px gap (waybar's 4 px margin plus 2 px module spacing). It is hidden in `default`. Other modes show their name in italics, `base00` on `base04`, with 7 px padding (9.0:1 dark, 6.7:1 light; waybar's `base07` gave 1.9 and 2.5:1, M7). Source: an `I3IpcListener` subscribed to `mode` events, with the initial mode from `swaymsg -t get_binding_state` (spike S10).
 - The mode name always shows in full while no note is visible. The `present:` mode doubles as a cheat sheet (`~/.config/sway/config.d/60-bindings-present.conf`), and waybar cuts it short today. The text only elides on the right if a note would otherwise get less than 600 px. The 600 px are the whole center span of section 4 (M4 choice, question Q14 in `PLAN.md` section 8). The label elides from the first frame of the note's entry to the last frame of its leave. A name that already runs under the clock when idle keeps the bar's clock box over it, empty while the note shows (question Q13).
 
 ### Center: clock
@@ -116,9 +116,9 @@ Center span: while a note is visible, it runs from the end of the left section (
 Note line, left to right:
 
 - Icon (16 px), from `image` or `appIcon` through `Quickshell.iconPath()`. Browsers and chat apps often send `image-data` (avatars, site icons). Outside rich mode, that image only fills this icon. An icon that does not load takes no room.
-- App name in `base04`, summary in `base07`, body in `base05`. On a critical, all three are `base07`, the app name at 70 % and the body at 85 % opacity over `base08`, so the summary stays brightest in both modes (M7, Q15).
+- App name in `base04`, summary in `base07`, body in `base05`. On a critical, all three are `Theme.onCritical` (`base07` in dark mode, `base00` in light mode, `#f8f8f8` in both: light `base07` gave 3.1:1 on `base08`). The app name is at 90 % and the body at 95 % opacity over `base08`, under the summary at full opacity: 4.7, 5.0 and 5.4:1 (M7, Q15). The progress line and the `+N` counter of a critical use `Theme.onCritical` too.
 - Newlines in the body become ` · `. The body advertises and renders a safe markup subset (`<b>`, `<i>`, `<u>`), and other tags are stripped. `services/Markup.js` does this, pure JS with unit tests: `<br>` counts as a newline, entities stay, a stray `<`, `>` or `&` is escaped, `<img>` goes with its attributes (StyledText would load it). App name and summary are plain text on one line.
-- While others wait, a counter `+N` sits at the right end of the span, `base04` (`base07` on critical).
+- While others wait, a counter `+N` sits at the right end of the span, `base04` (`Theme.onCritical` on critical).
 
 ## 5. Notification rules
 
@@ -173,7 +173,7 @@ Durations and easing curves live in one `Motion.qml` singleton. M7 tuned them wi
 Note:
 
 - **Enter.** The overlay maps showing exactly the bar's idle center: a `base00` box over the bar's clock box, and the overlay's own clock in it. Nothing moves until that first frame is on screen (the window's `frameSwapped`, with a 250 ms fallback), because a layer surface is configured before it draws. The clock compacts from `yyyy-MM-dd HH:mm` to `HH:mm` while sliding to the left edge of the span (288 ms, `Easing.OutCubic`): the full text stays right-aligned in a box that narrows, so the date leaves on the left. The separator fades in with the slide, then the note wipes in from the separator to the right end of the span (384 ms, `Easing.OutCubic`). The span background (`base01`) grows with the wipe. The leading edge is a 2 px `base0D` line with a soft halo: `shaders/wipe.frag`, a horizontal Gaussian (sigma 3 px, peak opacity 0.55) the same over the whole bar height, drawn under the line (M7, chosen over a `MultiEffect` shadow and over a trail behind the moving edge). It stays at the span's end while the note shows. The text sits at its final position and is revealed by the clip, so it does not move. The `base00` box over the bar's clock stays until the overlay unmaps, so the bar's clock never shows through.
-- **Stay.** A line wider than the space it has holds for 1200 ms, then scrolls left at 60 px/s. It holds for 1000 ms at the end, then fades back to the start in 150 ms, and the cycle repeats. The hold starts when the wipe (or a roll) ends. A 2 px progress line on the top edge of the whole span (compact clock, separator and note region, M7, Q15) shrinks to zero over the timeout (`base03`, `base07` on critical). It stops while the timer pauses (under an OSD), and a notification without a timeout has none.
+- **Stay.** A line wider than the space it has holds for 1200 ms, then scrolls left at 60 px/s. It holds for 1000 ms at the end, then fades back to the start in 150 ms, and the cycle repeats. The hold starts when the wipe (or a roll) ends. A 2 px progress line on the top edge of the whole span (compact clock, separator and note region, M7, Q15) shrinks to zero over the timeout (`base03`, `Theme.onCritical` on critical). It stops while the timer pauses (under an OSD), and a notification without a timeout has none.
 - **Leave.** The note retracts into the separator (288 ms, `Easing.InCubic`). Then the clock slides back to the center and expands to the full format (288 ms, `Easing.OutCubic`). The overlay unmaps once the frame that matches the bar's idle center is on screen. The leave runs after the notification closed, so the view draws from the entry's snapshot. A note that arrives during the leave opens the span again from where it is.
 - **Next in queue.** While the span is open, the old line moves up out of the strip and the new one comes in from below, 240 ms (`Easing.OutQuad`). The background crossfades over the same time when the colors differ. The clock stays compact, and there is no second wipe. A note that replaces the one on display through the synchronous tag changes the text in place, like a `replaces_id` update.
 - **Reload survivor.** It comes back with the span already open, without the entry animation.
