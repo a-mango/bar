@@ -314,9 +314,18 @@ Item {
 
     // ---- lines ----
 
+    // A local path as a file URL, each segment percent-encoded.
+    function fileUrl(path: string): string {
+        return "file://" + path.split("/").map(encodeURIComponent).join("/");
+    }
+
+    // `notify-send -i <file>` arrives as image://icon/<path>. Quickshell's
+    // icon provider answers a missing file with a checkerboard and status
+    // Ready, so the file is loaded directly: a missing one gives
+    // Image.Error and the icon takes no room (SPEC section 4).
     function iconOf(d: var): string {
         if (d.image)
-            return d.image;
+            return d.image.startsWith("image://icon//") ? fileUrl(d.image.slice("image://icon/".length)) : d.image;
         const icon = d.icon || "";
         if (icon.startsWith("file://"))
             return icon;
@@ -331,15 +340,14 @@ Item {
     // other source rich mode accepts (Rules.hasImage).
     function pictureOf(d: var): string {
         const image = d.image || "";
-        const file = path => "file://" + path.split("/").map(encodeURIComponent).join("/");
         if (image.startsWith("image://icon//"))
-            return file(image.slice("image://icon/".length));
+            return fileUrl(image.slice("image://icon/".length));
         if (image)
             return image;
         const icon = d.icon || "";
         if (icon.startsWith("file://"))
             return icon;
-        return icon.startsWith("/") ? file(icon) : "";
+        return icon.startsWith("/") ? fileUrl(icon) : "";
     }
 
     function snapOf(e: var): var {
