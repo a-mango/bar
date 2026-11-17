@@ -385,6 +385,8 @@ Status (2026-11-16, branch `m6-outputs`): the whole matrix passes on a fresh ses
 
 Q22 to Q26 in section 8 list the choices M6 made (numbered Q16 to Q20 on the branch, renumbered at the merge with M5).
 
+Merged into `main` with M5 on 2026-11-17 (merge commit `f5edbcd`): the whole matrix passes on a fresh session, 37 cases in 9 min 38 s with exit status 0 (`.test/logs/merge-m5-m6/matrix.log`). `make test` passes 37 tests and `make lint` exits 0 with the 10 warnings of M5 (same directory). No check changed after the merge. The merge joins the two branches' rules in the core. A note's timer pauses while an OSD covers it on the same output (M6) or while the pointer is on it (M5). Notes held during fullscreen follow the output the next note would show on (`targetOutput()`: the focused one, or the first screen). `retarget()` also drops the hover of an unplugged output's note view. Checked by hand: a 10 s note on the second output, paused under the pointer, then that output unplugged. The note moved to HEADLESS-1 without a hover and ran again, and a 3 s note sent after it closed after 3.2 s. The same check passes without the drop, because the view reported the leave itself, so the drop is a guard for a teardown where `modelData` is already null (M6 findings). The auto-merge had also set NoteView's `output` twice in `Overlay.qml` and declared `Sway.focusedOutput` twice; the merge keeps one of each. The M5 and M6 evidence (`.test/logs/m5/`, `.test/shots/m5/`, `.test/logs/m6/`, `.test/shots/m6/`) is copied from the branches' worktrees. The per-case shots in `.test/shots/<case>/` are from the merged run.
+
 ### M7: polish
 
 Tasks:
