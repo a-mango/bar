@@ -211,11 +211,34 @@ case_B5() {
     box=$(px "$menu" bbox "$before")
     echo "  menu box (logical): $box"
     mark=$(wc -l < "$log")
-    # The second entry, "Sync demo data", sits 35 px below the menu's top.
+    # The menu drawn in QML (TrayMenu, M7): 1 px frame and 3 px padding,
+    # rows of 24 px, the separator 9 px. "Sync demo data" is the second
+    # row, its middle 40 px below the menu's top.
     read -r x0 y0 x1 _ <<< "$box"
-    click "$(python3 -c "print(int(($x0 + $x1) / 2))")" "$(python3 -c "print(int($y0 + 35))")"; sleep 0.5
+    check "menu height: seven rows and a separator (185 px)" "$(python3 -c "print(int(${box##* } - $y0))")" 185 || f=1
+    click "$(python3 -c "print(int(($x0 + $x1) / 2))")" "$(python3 -c "print(int($y0 + 40))")"; sleep 0.5
     check "click on an entry reaches the item" "$(tail -n +$((mark + 1)) "$log" | grep -o "\[$pid\] Event 2 clicked .*")" "[$pid] Event 2 clicked 'Sync demo data'" || f=1
     check "menu closed after the click" "$(state "d['tray'][$index]['menuOpen']")" False || f=1
+
+    echo "  submenu: 'Demo layouts', then 'Layout north'"
+    click "$x" $MID button3; sleep 0.8
+    mark=$(wc -l < "$log")
+    # "Demo layouts" is the eighth row, 157 to 181 px below the top. Its
+    # submenu (two rows, 56 px) opens left of it, bottom on the row's bottom.
+    click "$(python3 -c "print(int(($x0 + $x1) / 2))")" "$(python3 -c "print(int($y0 + 169))")"; sleep 0.6
+    check "submenu opened" "$(tail -n +$((mark + 1)) "$log" | grep -c "\[$pid\] Event 8 opened ")" 1 || f=1
+    click "$(python3 -c "print(int($x0 - 30))")" "$(python3 -c "print(int($y0 + 181 - 56 + 16))")"; sleep 0.6
+    check "click in the submenu reaches the item" "$(tail -n +$((mark + 1)) "$log" | grep -o "\[$pid\] Event 9 clicked .*")" "[$pid] Event 9 clicked 'Layout north'" || f=1
+    check "both menus closed" "$(state "d['tray'][$index]['menuOpen']")" False || f=1
+
+    echo "  the grab ignores bar's own surfaces: the bar closes the menu"
+    click "$x" $MID button3; sleep 0.6
+    click "$x" $MID button3; sleep 0.6
+    check "a second right click closes it" "$(state "d['tray'][$index]['menuOpen']")" False || f=1
+    click "$x" $MID button3; sleep 0.6
+    click 600 $MID; sleep 0.6
+    check "a press on the bar outside the tray closes it" "$(state "d['tray'][$index]['menuOpen']")" False || f=1
+    scene hover 960 600
     return $f
 }
 

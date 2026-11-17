@@ -9,20 +9,32 @@ import qs.services
 // System tray (docs/SPEC.md section 3). Icons 16 px, 14 px apart.
 // Left click: activate, or the menu for menu-only items. Middle click:
 // secondary activate. Right click: the menu. Wheel: scroll.
-// Menus open through QsMenuAnchor with the bar's keyboard focus at None
-// (spike S9). The look and keyboard of menus are open question Q2 in
-// docs/PLAN.md section 8, so menu handling stays inside this file.
+// Menus are drawn in QML (TrayMenu, M7: the look half of Q2) with the
+// bar's keyboard focus at None (spike S9). The keyboard half of Q2 in
+// docs/PLAN.md section 8 is open, so menus react to the pointer only.
 Row {
     id: root
 
     readonly property int count: items.count
-    property int openMenus: 0
-    readonly property bool menuOpen: openMenus > 0
+    readonly property bool menuOpen: {
+        for (let i = 0; i < items.count; i++)
+            if (items.itemAt(i)?.menuOpen)
+                return true;
+        return false;
+    }
 
     spacing: 14
 
     function cell(index: int): var {
         return items.itemAt(index);
+    }
+
+    // The menu grab ignores clicks on bar's own surfaces (M7 spike), so
+    // the bar closes menus on a press outside the tray, and a cell closes
+    // the others before it opens its own.
+    function closeMenus(): void {
+        for (let i = 0; i < items.count; i++)
+            items.itemAt(i)?.closeMenu();
     }
 
     Repeater {
@@ -38,10 +50,11 @@ Row {
             property bool tooltipShown: false
 
             function openMenu(): void {
-                menu.open();
+                root.closeMenus();
+                menu.visible = true;
             }
             function closeMenu(): void {
-                menu.close();
+                menu.visible = false;
             }
 
             width: 16
@@ -54,7 +67,7 @@ Row {
                 if (event.button === Qt.MiddleButton)
                     modelData.secondaryActivate();
                 else if (event.button === Qt.RightButton || modelData.onlyMenu)
-                    openMenu();
+                    menuOpen ? closeMenu() : openMenu();
                 else
                     modelData.activate();
             }
@@ -105,14 +118,14 @@ Row {
                 opacity: cell.modelData.status === Status.Passive ? 0.5 : 1
             }
 
-            QsMenuAnchor {
+            // Grows up and to the left from the icon's top right corner,
+            // like the tooltip, so it stays on the output.
+            TrayMenu {
                 id: menu
-                menu: cell.modelData.menu
+                handle: cell.modelData.menu
                 anchor.item: cell
-                anchor.edges: Edges.Top
-                anchor.gravity: Edges.Top
-                onOpened: root.openMenus += 1
-                onClosed: root.openMenus -= 1
+                anchor.edges: Edges.Top | Edges.Right
+                anchor.gravity: Edges.Top | Edges.Left
             }
 
             Timer {

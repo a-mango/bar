@@ -65,6 +65,23 @@ PanelWindow {
         id: pointer
     }
 
+    // A press on the bar outside the tray closes tray menus: their grab
+    // ignores bar's own surfaces (M7). The handler takes a passive grab
+    // only, so the press still reaches the workspace buttons and the clock (a
+    // TapHandler here swallowed them).
+    Item {
+        anchors.fill: parent
+        z: 1
+
+        PointHandler {
+            acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+            onActiveChanged: {
+                if (active && tray.menuOpen && (point.position.x < tray.x || point.position.x >= tray.x + tray.width))
+                    tray.closeMenus();
+            }
+        }
+    }
+
     Workspaces {
         id: workspaces
         output: win.output
