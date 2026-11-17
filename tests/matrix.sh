@@ -1307,8 +1307,10 @@ case_TH() {
 
     echo "  during a note"
     ipc theme set dark
-    sleep 0.3
-    send -t 15000 "Theme check" "fictional note across a theme switch" > /dev/null
+    sleep 0.6 # past the 300 ms crossfade
+    # 30 s: the per-frame analysis below takes seconds, and the note must
+    # still show for the switch back to dark.
+    send -t 30000 "Theme check" "fictional note across a theme switch" > /dev/null
     sleep 1
     m0=$(state "$H1['maps']")
     frames TH/note "10 run quickshell ipc -p $REPO call theme set light" "${sched[@]}"
@@ -1332,7 +1334,7 @@ case_TH() {
     check "the note span crossfades to light" "${c0%% *}" ok || f=1
     bar_kept "after theme set light during the note" "$life" "$h" || f=1
     ipc theme set dark
-    sleep 0.3
+    sleep 0.6 # past the 300 ms crossfade
     s=$(shot TH note-dark-again)
     check "back in dark: note span base01" "$(px "$s" color 960 1179)" "$(palette base01)" || f=1
     bar_kept "after theme set dark" "$life" "$h" || f=1
