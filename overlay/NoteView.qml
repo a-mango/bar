@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Effects
 import Quickshell
 import Quickshell.Widgets
 import qs.services
@@ -691,8 +690,10 @@ Item {
         }
     }
 
-    // The leading edge: a 2 px line with a soft glow, kept inside the bar's
-    // height and short of the tray.
+    // The leading edge: a 2 px base0D line with a soft halo, kept inside
+    // the bar's height and short of the tray. The halo comes from
+    // shaders/wipe.frag (M7, chosen over a MultiEffect shadow), the line is
+    // a Rectangle on top so that it snaps to pixels like the rest.
     Item {
         visible: region.visible
         x: root.spanX
@@ -700,46 +701,19 @@ Item {
         height: Theme.barHeight
         clip: true
 
-        Rectangle {
-            id: edge
-            x: region.x + region.width - 2 - root.spanX
-            width: 2
-            height: Theme.barHeight
-            color: Theme.base0D
-            visible: false
-        }
-
-        MultiEffect {
-            visible: Motion.edgeStyle === "effect"
-            source: edge
-            anchors.fill: edge
-            autoPaddingEnabled: true
-            shadowEnabled: true
-            shadowColor: Theme.base0D
-            shadowBlur: 1.0
-            blurMax: 12
-            shadowOpacity: root.glow
-        }
-
-        // M7 candidate: the halo from shaders/wipe.frag, the core on top.
         ShaderEffect {
-            visible: Motion.edgeStyle !== "effect"
             anchors.fill: parent
             fragmentShader: Qt.resolvedUrl("../shaders/wipe.frag.qsb")
             property color color: Theme.base0D
             property size size: Qt.size(width, height)
-            property real edge: edge.x + 1
+            property real center: core.x + 1
             property real strength: root.glow * Motion.edgeHalo
             property real radius: Motion.edgeRadius
-            // The edge moves fastest at the start of the wipe (OutCubic:
-            // speed grows with (1 - w)^(2/3)).
-            property real trail: Motion.edgeStyle === "trail" && root.phase === "opening" ? Motion.edgeTrail * Math.pow(1 - root.w, 2 / 3) : 0
-            property real trailLen: Motion.edgeTrailLen
         }
 
         Rectangle {
-            visible: Motion.edgeStyle !== "effect"
-            x: edge.x
+            id: core
+            x: region.x + region.width - 2 - root.spanX
             width: 2
             height: Theme.barHeight
             color: Theme.base0D

@@ -59,14 +59,10 @@ Singleton {
     readonly property int cardRiseEasing: Easing.OutCubic
     readonly property int cardFall: 220 * slow
     readonly property int cardFallEasing: Easing.InCubic
-    // Leading edge (M7 A/B, `debug edge <style>`): "effect" is the
-    // MultiEffect shadow of M4, "shader" the halo of shaders/wipe.frag,
-    // "trail" the halo plus a trail behind the edge during the wipe.
-    property string edgeStyle: "effect"
-    property real edgeHalo: 0.55
-    property real edgeRadius: 3
-    property real edgeTrail: 0.5
-    property real edgeTrailLen: 40
+    // Leading edge halo (shaders/wipe.frag): peak opacity next to the
+    // 2 px line, and the Gaussian's sigma in logical px.
+    readonly property real edgeHalo: 0.55
+    readonly property real edgeRadius: 3
 
     // Critical: the leading-edge glow pulses between two opacities.
     readonly property int pulsePeriod: 1600 * slow
