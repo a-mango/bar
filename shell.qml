@@ -69,6 +69,11 @@ ShellRoot {
             Motion.slow = factor > 0 ? factor : 1;
         }
 
+        // M7 A/B of the note's leading edge: effect, shader or trail.
+        function edge(style: string): void {
+            Motion.edgeStyle = style;
+        }
+
         function noteHold(on: bool): void {
             root.noteHold = on;
         }
