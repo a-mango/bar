@@ -408,6 +408,8 @@ Status (2026-11-17, branch `m7-polish`): the owner signed off on the visuals, th
 - Final clips at the settled values: `.test/clips/r3-final/` (`all.mp4` and one file per scene).
 - M8 note: `make install` must build the shader first (section 6, step 1).
 
+Merged into `main` on 2026-11-17 (merge commit `bd91609`, no commits on `main` since the branch point, so the tree is the tested one): the whole matrix passes on a fresh session, 37 cases with exit status 0 (`.test/logs/merge-m7/matrix.log`). The run took 27 min 12 s instead of about 11 min, with no suspend in the journal and no failed check: the host was likely busy. `make test` passes 37 tests and `make lint` exits 0 with the 10 warnings (same directory).
+
 ### M8: cutover
 
 This milestone replaces waybar and mako on the live desktop. It starts only after the owner gives an explicit go-ahead in the session. See section 6.
