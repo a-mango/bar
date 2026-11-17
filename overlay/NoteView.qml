@@ -586,9 +586,7 @@ Item {
     SystemClock {
         id: clock
         enabled: root.active
-        // The seconds leave with the compaction, so they tick only while
-        // the clock is not compact.
-        precision: root.seconds && root.c < 1 ? SystemClock.Seconds : SystemClock.Minutes
+        precision: root.seconds ? SystemClock.Seconds : SystemClock.Minutes
     }
 
     // Measures the compact clock text: "HH:mm", also when the bar shows
