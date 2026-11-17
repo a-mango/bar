@@ -1253,8 +1253,10 @@ for k in range(n):
 if n == 2:
     hexes = lambda c: [int(c[i:i + 2], 16) for i in (1, 3, 5)]
     diff = max(max(abs(a - b) for a, b in zip(hexes(r[2]), hexes(r[3]))) for r in rows)
-    # One 16.7 ms frame of a 300 ms fade from #181818 to #f8f8f8 is about 13.
-    if diff > 16:
+    # At most one frame apart: one 16.7 ms frame of the 300 ms InOutQuad
+    # fade from #181818 to #f8f8f8 is up to 25 at its middle. The two
+    # windows commit separately, and one run saw them a frame apart (19).
+    if diff > 26:
         bad.append(f"probes apart by {diff} in one frame")
     out.append(f"largest difference between the probes in one frame: {diff}")
 print(("bad " + "; ".join(bad)) if bad else ("ok " + "; ".join(out)))
