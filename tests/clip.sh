@@ -22,7 +22,7 @@ REPO=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)
 T=$REPO/.test
 round=${1:?usage: tests/clip.sh <round> [scene...]}
 shift
-SCENES=(note roll marquee critical osd rich light)
+SCENES=(note roll marquee critical osd rich light theme)
 [ $# -gt 0 ] && SCENES=("$@")
 OUT=$T/clips/$round
 mkdir -p "$OUT"
@@ -88,6 +88,15 @@ scene_light() {
     osd volume 55
 }
 
+# A theme switch while a note shows, and back.
+scene_theme() {
+    n notify-send -a demo-app -t 6000 "Orchard report" "The pears are ripe on the north rows"
+    sleep 2
+    ipc theme set light > /dev/null
+    sleep 2
+    ipc theme set dark > /dev/null
+}
+
 if [ -n "${SLOW:-}" ]; then
     ipc debug slow "$SLOW" > /dev/null
     trap 'ipc debug slow 1 > /dev/null' EXIT
@@ -102,6 +111,7 @@ for s in "${SCENES[@]}"; do
         osd) rec osd 2 ;;
         rich) rec rich 6 ;;
         light) rec light 2 ;;
+        theme) rec theme 2 ;;
         *) echo "clip: unknown scene $s" >&2; exit 2 ;;
     esac
 done
@@ -110,7 +120,7 @@ reset
 # All recorded scenes in one file, in the default order.
 list=$OUT/all.txt
 : > "$list"
-for s in note roll marquee critical osd rich light; do
+for s in note roll marquee critical osd rich light theme; do
     [ -e "$OUT/$s.mp4" ] && echo "file '$OUT/$s.mp4'" >> "$list"
 done
 ffmpeg -v error -y -f concat -safe 0 -i "$list" -c copy "$OUT/all.mp4"

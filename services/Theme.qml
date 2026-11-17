@@ -29,22 +29,38 @@ Singleton {
         })
     readonly property var palette: palettes[mode] ?? palettes.dark
 
-    readonly property color base00: palette.base00
-    readonly property color base01: palette.base01
-    readonly property color base02: palette.base02
-    readonly property color base03: palette.base03
-    readonly property color base04: palette.base04
-    readonly property color base05: palette.base05
-    readonly property color base06: palette.base06
-    readonly property color base07: palette.base07
-    readonly property color base08: palette.base08
-    readonly property color base09: palette.base09
-    readonly property color base0A: palette.base0A
-    readonly property color base0B: palette.base0B
-    readonly property color base0C: palette.base0C
-    readonly property color base0D: palette.base0D
-    readonly property color base0E: palette.base0E
-    readonly property color base0F: palette.base0F
+    property color base00: palette.base00
+    Behavior on base00 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base01: palette.base01
+    Behavior on base01 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base02: palette.base02
+    Behavior on base02 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base03: palette.base03
+    Behavior on base03 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base04: palette.base04
+    Behavior on base04 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base05: palette.base05
+    Behavior on base05 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base06: palette.base06
+    Behavior on base06 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base07: palette.base07
+    Behavior on base07 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base08: palette.base08
+    Behavior on base08 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base09: palette.base09
+    Behavior on base09 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base0A: palette.base0A
+    Behavior on base0A { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base0B: palette.base0B
+    Behavior on base0B { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base0C: palette.base0C
+    Behavior on base0C { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base0D: palette.base0D
+    Behavior on base0D { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base0E: palette.base0E
+    Behavior on base0E { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base0F: palette.base0F
+    Behavior on base0F { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
 
     // Reads the 16 `@define-color baseXX #rrggbb;` lines of a base16 CSS file.
     function parse(css: string): var {

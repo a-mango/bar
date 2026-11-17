@@ -59,6 +59,11 @@ Singleton {
     readonly property int cardRiseEasing: Easing.OutCubic
     readonly property int cardFall: 220 * slow
     readonly property int cardFallEasing: Easing.InCubic
+    // Theme switch (Q26 prototype): crossfade of every palette color, 0 for
+    // the instant swap of M6. `debug themeFade <ms>`.
+    property int themeFade: 0
+    readonly property int themeFadeEasing: Easing.InOutQuad
+
     // Leading edge halo (shaders/wipe.frag): peak opacity next to the
     // 2 px line, and the Gaussian's sigma in logical px.
     readonly property real edgeHalo: 0.55

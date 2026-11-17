@@ -69,6 +69,11 @@ ShellRoot {
             Motion.slow = factor > 0 ? factor : 1;
         }
 
+        // Q26 prototype: theme crossfade duration, 0 for the instant swap.
+        function themeFade(ms: int): void {
+            Motion.themeFade = ms;
+        }
+
         function noteHold(on: bool): void {
             root.noteHold = on;
         }
