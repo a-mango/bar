@@ -586,14 +586,17 @@ Item {
     SystemClock {
         id: clock
         enabled: root.active
-        precision: root.seconds ? SystemClock.Seconds : SystemClock.Minutes
+        // The seconds leave with the compaction, so they tick only while
+        // the clock is not compact.
+        precision: root.seconds && root.c < 1 ? SystemClock.Seconds : SystemClock.Minutes
     }
 
-    // Measures the compact clock text.
+    // Measures the compact clock text: "HH:mm", also when the bar shows
+    // seconds (Q15, M7).
     BarText {
         id: compactProbe
         visible: false
-        text: root.seconds ? "HH:mm:ss" : "HH:mm"
+        text: "HH:mm"
     }
 
     // Hides the bar's own clock box while the overlay moves its copy.
@@ -621,10 +624,19 @@ Item {
             color: Theme.base00
         }
 
-        BarText {
-            x: clockBox.width - 7 - implicitWidth
-            text: Qt.formatDateTime(clock.date, root.seconds ? "HH:mm:ss" : "yyyy-MM-dd HH:mm")
-            color: Theme.base07
+        // The full text stays right-aligned, so the date leaves on the
+        // left. With seconds the text is left-aligned instead and this clip
+        // ends at the right padding, so the seconds leave on the right.
+        Item {
+            width: Math.max(0, clockBox.width - 7)
+            height: Theme.barHeight
+            clip: true
+
+            BarText {
+                x: root.seconds ? 7 : clockBox.width - 7 - implicitWidth
+                text: Qt.formatDateTime(clock.date, root.seconds ? "HH:mm:ss" : "yyyy-MM-dd HH:mm")
+                color: Theme.base07
+            }
         }
     }
 
@@ -662,14 +674,6 @@ Item {
             opacity: 0
         }
 
-        // Progress: 2 px on the top edge, shrinking to zero over the timeout.
-        Rectangle {
-            visible: root.timed
-            width: root.regionW * root.progress
-            height: 2
-            color: root.critical ? Theme.base07 : Theme.base03
-        }
-
         Item {
             id: viewport
             x: 7
@@ -698,6 +702,23 @@ Item {
             x: root.regionW - 7 - implicitWidth
             text: "+" + Notifs.queued
             color: root.critical ? Theme.base07 : Theme.base04
+        }
+    }
+
+    // Progress: 2 px on the top edge of the whole span (compact clock,
+    // separator and note region, Q15 in M7), shrinking to zero over the
+    // timeout. Clipped to what the wipe has drawn.
+    Item {
+        visible: region.visible && root.timed
+        x: root.spanX
+        width: Math.max(0, region.x + region.width - root.spanX)
+        height: 2
+        clip: true
+
+        Rectangle {
+            width: (root.spanEnd - root.spanX) * root.progress
+            height: 2
+            color: root.critical ? Theme.base07 : Theme.base03
         }
     }
 
@@ -879,6 +900,10 @@ Item {
                 visible: text !== ""
                 text: line.snap ? line.snap.app : ""
                 color: line.snap && line.snap.critical ? Theme.base07 : Theme.base04
+                // On a critical, the hierarchy of a note through opacity
+                // towards base08 (Q15, M7): no palette role reads on base08
+                // in both modes.
+                opacity: line.snap && line.snap.critical ? Theme.criticalAppOpacity : 1
             }
             BarText {
                 visible: text !== ""
@@ -890,6 +915,7 @@ Item {
                 textFormat: Text.StyledText
                 text: line.snap ? line.snap.body : ""
                 color: line.snap && line.snap.critical ? Theme.base07 : Theme.base05
+                opacity: line.snap && line.snap.critical ? Theme.criticalBodyOpacity : 1
             }
         }
 

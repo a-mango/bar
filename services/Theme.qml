@@ -22,6 +22,10 @@ Singleton {
     readonly property int barHeight: 24
     // The rich card above the note span (SPEC section 4, decision D1).
     readonly property int cardHeight: 72
+    // A critical's app name and body: base07 at these opacities over
+    // base08, under the summary's full base07 (Q15, M7).
+    readonly property real criticalAppOpacity: 0.7
+    readonly property real criticalBodyOpacity: 0.85
 
     readonly property var palettes: ({
             dark: parse(darkFile.text()),
