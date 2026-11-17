@@ -192,10 +192,17 @@ case_B5() {
     b=$(shot B5 attention-2); sleep 0.55
     c=$(shot B5 attention-3)
     more "NeedsAttention: the background above icon $index changes" "$(python3 -c "print(max($(px "$a" diff "$b" $((x - 8)) 1177 $((x + 8)) 1179), $(px "$b" diff "$c" $((x - 8)) 1177 $((x + 8)) 1179)))")" 1 || f=1
+    # Passive items are hidden, as waybar hides them (M8): the right-aligned
+    # Row closes up, so the leftmost slot empties and the tray starts 30 px
+    # further right.
+    b=$(state "$(bar1)['trayStart']")
     scene tray 1 Passive; sleep 0.3
     a=$(shot B5 passive)
-    check "Passive: no blink background" "$(px "$a" color $x $TOP)" "$(palette base00)" || f=1
+    check "Passive: icons drawn" "$(state "$(bar1)['trayShown']")" $((count - 1)) || f=1
+    check "Passive: leftmost slot empty (one color)" "$(px "$a" ink $(($(tray_x 0 "$count") - 8)) 1180 $(($(tray_x 0 "$count") + 8)) 1196)" 1 || f=1
+    check "Passive: tray start moves right" "$(python3 -c "print(round($(state "$(bar1)['trayStart']") - $b))")" 30 || f=1
     scene tray 1 Active; sleep 0.3
+    check "Active again: icons drawn" "$(state "$(bar1)['trayShown']")" "$count" || f=1
     mark=$(wc -l < "$log")
     click "$x" $MID; sleep 0.3
     click "$x" $MID button2; sleep 0.3

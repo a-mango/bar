@@ -145,7 +145,8 @@ ShellRoot {
                                 elided: b.mode.elided,
                                 visible: b.mode.visible
                             },
-                            tray: b.tray.count
+                            tray: b.tray.count,
+                            trayShown: b.tray.shown
                         })),
                 overlays: overlays.instances.map(o => ({
                             screen: o.output,
