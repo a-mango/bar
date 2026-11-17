@@ -324,7 +324,7 @@ N5 and N6 save frame series (`tests/frames.py`: shots at 0, 60, 120, 300 and 900
 - `HV`: the hover pause of section 8. A frame series with the pointer on a 3 s note from 1 s to 4 s (the progress line stands still, the note closes after 6 s), the marquee standing still under the pointer, the card counting as the note, no hover left behind after an unmap under the pointer, and a note that opens under a resting pointer paused at once (Q21).
 - `CL`: clicks per the rules table. A left click runs the default action, a right click only dismisses, a left click dismisses a critical without actions, a middle click dismisses the note and the whole queue, also from an OSD over a note.
 - `HP`: hotplug (section 11). `create_output` and an unplug while a note shows on HEADLESS-1, then an unplug of the output that shows a critical and an OSD. The bar of HEADLESS-1 keeps its serial, connects and hides and its 1176 px workspace, the new overlay never maps, both notifications move to HEADLESS-1, and the Quickshell log gets no warning.
-- `TH`: `theme set light` during an OSD and during a note (section 10). No map, no entry, no update, the bar kept, and a frame series where each frame shows one palette.
+- `TH`: `theme set light` during an OSD and during a note (section 10). No map, no entry, no update, the bar kept, and frame series where the colors crossfade from dark to light without going back, the bar and the overlay showing the same color in every frame (M7, Q26).
 - `END`: nothing is left tracked and the overlay is unmapped. It runs last, right after N16.
 
 N1, N3 and N4 also save frame series of the bar strip (`tests/strip-frames.py`, with the slow-motion factor of the `debug` target), N2 and N15 at normal speed.
