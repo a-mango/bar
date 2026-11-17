@@ -720,7 +720,8 @@ Item {
         }
     }
 
-    // The leading edge: a 2 px base0D line with a soft halo, kept inside
+    // The leading edge: a 2 px base0D line (Theme.onCritical on a
+    // critical) with a soft halo, kept inside
     // the bar's height and short of the tray. The halo comes from
     // shaders/wipe.frag (M7, chosen over a MultiEffect shadow), the line is
     // a Rectangle on top so that it snaps to pixels like the rest.
@@ -734,7 +735,7 @@ Item {
         ShaderEffect {
             anchors.fill: parent
             fragmentShader: Qt.resolvedUrl("../shaders/wipe.frag.qsb")
-            property color color: Theme.base0D
+            property color color: core.color
             property size size: Qt.size(width, height)
             property real center: core.x + 1
             property real strength: root.glow * Motion.edgeHalo
@@ -746,7 +747,9 @@ Item {
             x: region.x + region.width - 2 - root.spanX
             width: 2
             height: Theme.barHeight
-            color: Theme.base0D
+            // White on a critical (M7): base0D's halo on base08 blended to
+            // a muddy mauve-gray.
+            color: root.critical ? Theme.onCritical : Theme.base0D
         }
     }
 
