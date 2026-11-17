@@ -17,6 +17,8 @@ import "Rules.js" as Rules
 //
 // M5 adds the clicks (click()), the hover pause (hover()) and the hold of
 // notes while the target output shows a fullscreen window (showNext()).
+// M6 places each notification on an output (targetOutput(), osdOn(),
+// noteOn()) and moves it off an unplugged one (retarget()).
 //
 // An entry is a plain object:
 //   n          the Notification, null once closed or for a restored history entry
@@ -31,6 +33,7 @@ import "Rules.js" as Rules
 //   deadline   absolute ms of the display timeout or DND expiry, or null
 //   waitUntil  absolute ms of the queue limit, or null
 //   from       for an OSD that replaced another one: the previous value
+//   output     the screen it shows on, set when it becomes visible (M6)
 Singleton {
     id: root
 
@@ -50,13 +53,16 @@ Singleton {
     // Bumped when a display timer starts, pauses or restarts, for the
     // progress line (the entries are plain objects without signals).
     property int timing: 0
+    // Bumped when an entry on display moves to another output (hotplug).
+    property int placed: 0
     property int received: 0
 
     // Decision D5: notes whose rule does not show over fullscreen wait in
     // the queue while the target output shows a fullscreen window. The
-    // target is the focused output (SPEC section 11). The first waiting
-    // note that may show takes the span once the fullscreen window leaves.
-    readonly property bool fullscreen: Sway.focusedFullscreen
+    // target is the output the next note would show on, the focused one
+    // (targetOutput(), SPEC section 11). The first waiting note that may
+    // show takes the span once the fullscreen window leaves.
+    readonly property bool fullscreen: Sway.isFullscreen(targetOutput())
     onFullscreenChanged: {
         if (!fullscreen && !current)
             showNext();
@@ -84,6 +90,7 @@ Singleton {
             deadline: null,
             waitUntil: null,
             from: null,
+            output: "",
             closed: false
         };
     }
@@ -108,7 +115,7 @@ Singleton {
         } else if (old && old === current && (critical || old.cls.kind !== "critical")) {
             // Same synchronous tag as the note on display: take its place.
             e.replaced = true;
-            show(e);
+            show(e, old.output);
             close(old, "expire");
         } else if (old && queue.includes(old) && !critical && old.cls.kind !== "critical") {
             // Same tag as a waiting note: take its place and its queue limit.
@@ -196,12 +203,15 @@ Singleton {
 
     function showOsd(e: var, old: var): void {
         const previous = osd;
-        if (previous && previous.tag !== "" && previous.tag === e.tag)
+        const same = previous && previous.tag !== "" && previous.tag === e.tag;
+        if (same)
             e.from = previous.data.value;
+        // Before the slot changes, so that the views never see the entry
+        // without its output. Same-tag updates stay where the OSD started.
+        e.output = same ? previous.output : targetOutput();
         osd = e;
         run(e);
-        if (current)
-            pause(current);
+        syncPause();
         // The replaced OSD (same tag or not) leaves for good.
         if (previous)
             close(previous, "expire");
@@ -219,7 +229,7 @@ Singleton {
                 back.waitUntil = back.cls.kind === "critical" ? null : Date.now() + queueLimit;
                 queue = [back].concat(queue);
             }
-            show(e);
+            show(e, targetOutput());
         } else {
             e.waitUntil = Date.now() + queueLimit;
             queue = queue.concat([e]);
@@ -228,10 +238,13 @@ Singleton {
         }
     }
 
-    function show(e: var): void {
+    // `output` is set before `current` changes, so that the views never see
+    // the entry without it.
+    function show(e: var, output: string): void {
         e.waitUntil = null;
+        e.output = output;
         current = e;
-        resume(e);
+        syncPause();
     }
 
     // Held while the target output shows a fullscreen window (decision D5).
@@ -246,13 +259,72 @@ Singleton {
         if (!next)
             return;
         queue = queue.filter(q => q !== next);
-        show(next);
+        show(next, targetOutput());
     }
 
-    // The note's timer runs unless an OSD covers it or the pointer is on it.
-    function resume(e: var): void {
-        if (e && !osd && !hovered)
-            run(e);
+    // The note's timer pauses while an OSD covers it (an OSD on the same
+    // output) or the pointer is on it, and runs otherwise.
+    function syncPause(): void {
+        if (!current)
+            return;
+        if ((osd && osd.output === current.output) || hovered)
+            pause(current);
+        else
+            run(current);
+    }
+
+    // ---- outputs ---------------------------------------------------------
+
+    // The output a notification shows on when it becomes visible: the
+    // focused one (docs/SPEC.md section 11). The first screen stands in
+    // while sway has not answered yet, or names a screen Quickshell does
+    // not know (yet).
+    function targetOutput(): string {
+        const names = Quickshell.screens.map(s => s.name);
+        return names.includes(Sway.focusedOutput) ? Sway.focusedOutput : (names[0] ?? "");
+    }
+
+    // The OSD and the note on display on one output, or null. A binding
+    // that calls them also depends on `placed`, which changes when an entry
+    // on display moves to another output.
+    function osdOn(output: string): var {
+        return placed >= 0 && osd !== null && osd.output === output ? osd : null;
+    }
+    function noteOn(output: string): var {
+        return placed >= 0 && current !== null && current.output === output ? current : null;
+    }
+
+    // Hotplug: an entry on display whose output went away moves to the
+    // target output. A critical would otherwise stay out of sight until
+    // dismissed. Entries on the remaining outputs stay where they are.
+    function retarget(): void {
+        const names = Quickshell.screens.map(s => s.name);
+        // The note view of a removed output may go before it reports that
+        // the pointer left: its hover would hold every note.
+        const wasHovered = hovered;
+        hovering = hovering.filter(k => names.includes(k));
+        let moved = false;
+        for (const e of [osd, current]) {
+            if (e && !names.includes(e.output)) {
+                const to = targetOutput();
+                console.info("notifs: output", e.output || "(none)", "is gone, notification", e.data.id, "moves to", to || "(none)");
+                e.output = to;
+                moved = true;
+            }
+        }
+        if (moved || hovered !== wasHovered) {
+            syncPause();
+            reschedule();
+        }
+        if (moved)
+            placed += 1;
+    }
+
+    Connections {
+        target: Quickshell
+        function onScreensChanged(): void {
+            root.retarget();
+        }
     }
 
     function run(e: var): void {
@@ -362,7 +434,7 @@ Singleton {
             queue = queue.filter(q => q !== e);
         if (osd === e) {
             osd = null;
-            resume(current);
+            syncPause();
         }
         if (current === e) {
             current = null;
@@ -518,12 +590,7 @@ Singleton {
         hovering = on ? hovering.filter(k => k !== key).concat([key]) : hovering.filter(k => k !== key);
         if (hovered === was)
             return;
-        if (current) {
-            if (hovered)
-                pause(current);
-            else
-                resume(current);
-        }
+        syncPause();
         reschedule();
     }
 
@@ -563,6 +630,7 @@ Singleton {
             summary: e.data.summary,
             kind: e.cls.kind,
             value: e.data.value,
+            output: e.output,
             restored: e.restored,
             running: e.running,
             remaining: e.running && e.deadline !== null ? e.deadline - Date.now() : isFinite(e.remaining) ? e.remaining : -1

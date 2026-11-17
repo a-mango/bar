@@ -7,7 +7,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 <!-- M0 creates these. Keep this list in sync with the Makefile. -->
 - `make nested`: start the isolated test desktop (headless sway, private D-Bus, quickshell on this tree). `make nested-stop` ends it.
 - `tests/nested.sh run <command>`: run a command inside the nested session (`env -i`, nested display and bus). `tests/nested.sh click <x> <y> [button]` clicks at logical coordinates.
-- `tests/scene.sh setup`: workspaces 1, 2, 3 and `4:demo`, urgent 3, two fake tray items, once per session. Then `mode`, `present`, `focus-other`, `focus-main`, `hover`, `tray <n> <status>`.
+- `tests/scene.sh setup`: workspaces 1, 2, 3 and `4:demo`, urgent 3, two fake tray items, once per session. Then `mode`, `present`, `focus-other`, `focus-main`, `plug`, `other`, `unplug`, `hover`, `tray <n> <status>`.
 - `make reference`: nested session running waybar with `docs/reference/waybar/`, screenshot of its bar (visual target)
 - `make matrix`: run the `docs/SPEC.md` test matrix against the nested session (about 7 minutes). `make matrix CASE=N5` runs one case, `CASE="N13 N18"` several.
 - `make shots`: screenshot the nested output into `.test/shots/`
@@ -77,7 +77,11 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - `pkill -f <pattern>` matches the shell that runs it when the pattern is on its own command line. Kill by PID.
 - A QML type named `State` loses to QtQuick's `State`. Do not name a singleton after a QtQuick type.
 - `swaymsg` joins its arguments into one command string: quote names with spaces inside the argument (`mode "\"$name\""`), and pass `--` before commands that contain `--custom`.
-- sway places a new output (`create_output`) first and moves HEADLESS-1. `tests/scene.sh focus-other` puts both outputs back at x 0 and 1920.
+- sway may place a new output (`create_output`) first and move HEADLESS-1. `tests/scene.sh focus-other` and `plug` put both outputs back at x 0 and 1920.
+- sway numbers headless outputs on from the last one created: after an unplug, `create_output` gives HEADLESS-3, then HEADLESS-4. Get the name from `tests/scene.sh other`, never hard-code HEADLESS-2. `tests/scene.sh unplug` removes it.
+- `tests/pixel.py` reads scale 2 screenshots. Set `PX_SCALE=1` for the second output (1920x1080, scale 1).
+- While a window is torn down after an unplug, its `modelData` is null for a moment. Read the screen name through `modelData?.name`.
+- Every hot reload logs WARN lines (`qt.qml.propertyCache.append` from the `Quickshell.Widgets` wrappers, `I3 event socket disconnected`). A check for warnings in the Quickshell log must not span a reload.
 - `seat seat0 cursor set 0 <y>` leaves x unchanged: a 0 coordinate means "keep".
 - sway does not slide popups of layer surfaces back onto the output. Anchor popups near an edge so that they grow away from it.
 - The nested session has `tests/bin` first on `PATH`: `darkman get` is the stub, which answers from `.test/darkman-mode` or fails.
@@ -86,9 +90,10 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - A newly mapped window shows its first frame about 30 ms later, and Qt's first tick after `start()` only registers an animation. Entry animations start on the window's first `frameSwapped` (`OsdView`, `NoteView`).
 - `PanelWindow` does not expose `_backingWindow` to QML. Use an item's attached `Window.window` for `frameSwapped`.
 - `mask: Region { item: null }` is an empty input region: every click goes through to the bar.
-- `debug state` lists the overlays of every output. Until M6 each overlay maps, so tests count maps and entries on HEADLESS-1 only.
 - The pointer on a note pauses its timer, and `tests/nested.sh click` leaves the pointer where it clicked. Park it (`scene hover 960 600`, `park` in `tests/matrix.sh`) before a timing check. Hover follows pointer motion: a note that maps under a resting pointer is not hovered.
 - In `swaymsg -t get_tree`, every workspace node reports `fullscreen_mode: 1`. Count only `con` and `floating_con` nodes.
 - An `Image` without `asynchronous: true` decodes on the GUI thread: a screenshot PNG blocks for 150 to 350 ms.
 - A `tests/client` window killed through sway leaves its `quickshell` process running. Kill it by PID.
 - The notification history keeps 20 entries, and a full matrix run fills it. Check `newest` in `notify status`, not a count that grows.
+- A notification maps only the overlay of the output it was placed on (`output` in `notify status`), the focused one when it became visible. `reset_notifs` in `tests/matrix.sh` focuses HEADLESS-1. Cases that move the focus use `focus_other` and `focus_main`, which wait until `debug state` reports the new `focusedOutput`.
+- Entries are plain JS objects without change signals: set `e.output` before assigning `osd` or `current`, and bump `Notifs.placed` when an entry on display moves, or a view sees the entry without its output.

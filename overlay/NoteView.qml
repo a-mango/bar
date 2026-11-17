@@ -36,7 +36,9 @@ Item {
     // The bar of the same output: its clock box, the end of its left
     // section and the start of its tray place the span.
     property var bar: null
-    // The output's name: this view's key for the hover pause.
+    // The output of the overlay window: the view shows the note that the
+    // core placed there (Notifs.noteOn()), and it is the view's key for the
+    // hover pause.
     property string output: ""
     // Device pixel ratio of the window, for the card's thumbnail.
     property real dpr: 1
@@ -106,7 +108,7 @@ Item {
         // The card falls first, then this runs again (lowerCard).
         if (lowering)
             return;
-        const next = Notifs.current;
+        const next = Notifs.noteOn(output);
         if (next === entry) {
             if (next && (phase === "closing" || phase === "last"))
                 open();
@@ -429,6 +431,10 @@ Item {
         }
         function onTimingChanged(): void {
             Qt.callLater(root.syncProgress);
+        }
+        // The note on display moved to another output (hotplug).
+        function onPlacedChanged(): void {
+            Qt.callLater(root.sync);
         }
     }
 

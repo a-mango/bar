@@ -157,9 +157,9 @@ Changes from the mako behavior:
 6. **`replaces_id` updates.** The server updates the existing object and emits no new `notification` signal. Views bind to the properties (`summary`, `body`, `hints`, `urgency`, `image`). The core listens to `expireTimeoutChanged`, `hintsChanged`, `summaryChanged`, `bodyChanged` and `urgencyChanged`. It reads the rules again and restarts the time, and the notification stays where it is: one on display starts its timeout again, a waiting one shows later with the new timeout and keeps its queue limit, and one hidden by DND starts its 5000 ms again. A waiting note that turns critical takes the span, and an update never turns a note into an OSD, or an OSD into a note (M1 choice, Q9). A `notify-send -r` update that repeats the same text restarts the time as well (measured: closed 5.0 s after the update, `.test/logs/m1/bus-same-update.log`).
 7. **Queue.** One note is visible at a time:
    - Order: critical notifications first (newest first), then the others in arrival order (oldest first).
-   - An OSD draws above the current note. The note's timer pauses and resumes once the OSD leaves.
+   - An OSD draws above the current note. The note's timer pauses and resumes once the OSD leaves. With several outputs, this holds when both show on the same output: a note on another output keeps running (M6 choice, Q22 in `PLAN.md` section 8).
    - A critical notification pushes the current note back to the front of the queue with its remaining time. The note's 30 s queue limit starts again at that moment (M1 choice, Q6). A newer critical also takes the span from an older one, which goes back to the front of the queue. `battery-appindicator` sends 20 %, 5 % and suspend warnings in a row, and the latest one must be the one on screen.
-   - While the target output shows a fullscreen window, notes whose rule does not show over fullscreen stay in the queue (decision D5). They keep their place and their queue limit, and the first entry that may show takes the span, so a screenshot passes the held notes. The first held note appears when the fullscreen window leaves. Until M6 the target output is the focused one.
+   - While the target output shows a fullscreen window, notes whose rule does not show over fullscreen stay in the queue (decision D5). They keep their place and their queue limit, and the first entry that may show takes the span, so a screenshot passes the held notes. The first held note appears when the fullscreen window leaves. The target output is the one the next note would show on, the focused one (section 11).
    - The pointer on the note (or its card) pauses its timer, like an OSD over it. The timer runs only while neither holds it.
    - A notification that has waited 30 s in the queue without being shown expires into history (reason 1). This includes notes held during fullscreen, so most notes that arrive during a film end up in history. Critical notifications are exempt: they stay until clicked (decision D2), so they wait in the queue as long as needed. Blocking senders such as `screenshot.sh` would otherwise wait for as long as the queue lasts.
 8. **Timers.** The server has no expiry timer, so all timers live in QML. Expiry calls `n.expire()` (reason 1). A dismiss click calls `n.dismiss()` (reason 2). An action click calls `action.invoke()`, which emits `ActionInvoked` and then closes with reason 2 unless the notification is `resident`. A sender's `CloseNotification` closes with reason 3, and the views react to the `closed` signal. A `resident` notification keeps its timer after an action and expires as usual. One scheduler `Timer` in `services/Notifs.qml` serves every deadline. QML timers are coarse (Qt allows 5 % error), so it wakes at 90 % of the wait and arms again, and a close lands within about 10 ms of its time. Every tracked notification must close eventually.
@@ -219,7 +219,7 @@ Calls use `quickshell ipc -p <config dir> call <target> <function> [args]`. Type
 
 `theme` target: `set(mode: string)` with `dark` or `light`, and `mode(): string`.
 
-`debug` target, for tests only: `state(): string` (bars, overlays, the note view's geometry and animation state), `overlay(mode)` (the M0 spike content), `trayMenu(index, open)`, `slow(factor: real)` (note durations times `factor`, for frame series), `noteHold(on: bool)` and `noteRelease()` (the note view waits at its first and last frame, for the handoff check).
+`debug` target, for tests only: `state(): string` (the focused output and the screens, bars with a serial number and counters of backing-window connects and hides, overlays, the note view's geometry and animation state), `overlay(mode)` (the M0 spike content), `trayMenu(index, open)`, `slow(factor: real)` (note durations times `factor`, for frame series), `noteHold(on: bool)` and `noteRelease()` (the note view waits at its first and last frame, for the handoff check).
 
 Sway bindings (decision D3), installed at cutover from `packaging/sway-bindings.conf`. Each one runs `quickshell ipc -p ~/.local/share/bar call notify <function>`:
 
@@ -238,15 +238,20 @@ Sway bindings (decision D3), installed at cutover from `packaging/sway-bindings.
 - Every color in the views comes from the theme service, and no view contains a raw hex value.
 - Startup mode: the output of `darkman get` (through `Process`). darkman may not be up yet at login, so if that fails, the last mode stored in `state.json` (key `themeMode`) applies, then `dark`. Every applied mode is written back to that key.
 - Transitions: a new darkman hook, `~/.local/share/darkman/bar.sh`, calls `quickshell ipc --any-display -p ~/.local/share/bar call theme set "$1"`. darkman is a systemd user service and may lack `WAYLAND_DISPLAY` when it starts at login, and `quickshell ipc` only sees instances on the caller's display without `--any-display`. The `-p` path already selects the live instance only. The hook exits quietly when bar is not running.
-- A theme change only changes the bound color properties. It never calls `Quickshell.reload()`, which would unmap the bar.
+- A theme change only changes the bound color properties. It never calls `Quickshell.reload()`, which would unmap the bar. During an OSD or a note it maps nothing, runs no entry, and every frame shows one palette, with the bar and the overlay switching in the same frame (matrix case TH). The colors change at once, without a crossfade (M6 choice, Q26).
 
 ## 11. Outputs
 
 - One bar window and one overlay window per screen, through `Variants { model: Quickshell.screens }`.
 - Each bar shows the workspaces of its own output. The clock and tray appear on every bar.
 - Fullscreen state per output comes from sway IPC: `swaymsg -t get_tree` at startup, then `window` events (`fullscreen_mode` changes) and `workspace` events through an `I3IpcListener`. An output counts as fullscreen when its visible workspace holds a fullscreen container, or when a global fullscreen window exists. Events only say that something changed: every `window` event that can change the answer (`fullscreen_mode`, `close`, `move`, `floating`, `new`), every `workspace` event but `urgent` and every `output` event reads the tree again, one `swaymsg` at a time. In the tree, workspace nodes always report `fullscreen_mode: 1`, so only `con` and `floating_con` nodes count, and the scratchpad output `__i3` never does (`PLAN.md` section 8, M5 findings).
-- A notification shows on the output that is focused when it becomes visible (`I3.focusedMonitor.name` matched to `ShellScreen.name`) and stays there until it leaves. OSD updates with the same synchronous tag stay where the OSD started.
+- A notification shows on the output that is focused when it becomes visible (`I3.focusedMonitor.name` matched to `ShellScreen.name`, through `Sway.focusedOutput`) and stays there until it leaves. OSD updates with the same synchronous tag stay where the OSD started, and a note that replaces the one on display through the tag keeps its output. While sway has not reported a focused output, or names one that Quickshell does not list, the first screen stands in.
+  - A note that takes the span from the queue becomes visible at that moment, so it goes to the output focused then. If the focus moved since the previous note, that one leaves on its output and the next one enters on the focused output, without a roll (M6 choice, Q24). The same holds for a note pushed back by a critical when it shows again, and for an OSD of another app, which is a new OSD (Q5).
+  - The core stamps the output on the entry before the slot changes, and each overlay's views draw only the entries placed on their output (`Notifs.osdOn()`, `Notifs.noteOn()`). The overlays of the other outputs stay unmapped.
+  - A reload survivor goes to the output focused at the reload: the core does not keep the output across a reload (M6 choice, Q25).
 - Plugging or unplugging an output (dock) must not crash the shell or leave a stale surface.
+  - `Variants` keeps the bar and overlay of every output that stays. A new output gets its own pair, and its overlay stays unmapped while a notification shows elsewhere. The bars of the other outputs are never replaced or unmapped and keep their exclusive zone (matrix case HP).
+  - When the output of a notification on display goes away, the notification moves to the output focused then (or the first screen) and enters there with the entry animation. A critical would otherwise stay out of sight until dismissed (M6 choice, Q23). The pause rule above applies again on the new output.
 
 ## 12. Compatibility contract
 
@@ -297,7 +302,7 @@ Notifications:
 | N9 | `CloseNotification` on a visible note | leaves early, reason 3 |
 | N10 | `notify-send -r <id>` update | text changes in place, timer restarts |
 | N11 | `touch shell.qml` (reload) while a note is visible | note survives, no second entry animation |
-| N12 | second output (`swaymsg create_output`), focus moved to it | next note shows on the focused output |
+| N12 | second output (`swaymsg create_output`), focus moved to it | next note shows on the focused output only, and stays there when the focus moves back. An OSD on the other output does not pause it, a same-tag OSD update stays where the OSD started, and the note queued behind it shows on the output focused when it takes the span |
 | N13 | a critical note left visible, then a `-A discard=Discard` note queued behind it | the queued note expires after 30 s, and its `notify-send` exits with no output |
 | N14 | DND on, `notify-send -u critical -a demo-app "Disk almost full" "fictional test"` | nothing drawn, reason 1 after 5 s |
 | N15 | a note visible, click on a workspace button | the workspace switches (overlay mask) |
@@ -307,7 +312,7 @@ Notifications:
 
 N5 and N6 save frame series (`tests/frames.py`: shots at 0, 60, 120, 300 and 900 ms, each stamped with its frame time). N6 also saves palette sheets in both themes and checks that a click dismisses the OSD. B7 covers the OSD, the screenshot note with its card over the client, the held plain note and its appearance once fullscreen ends. N7 uses real clicks (`tests/nested.sh click`) on the card and the note line, and saves a frame series of the card rising after the wipe and falling before the leave.
 
-`tests/matrix.sh` has ten more cases:
+`tests/matrix.sh` has twelve more cases:
 
 - `SC`: `GetCapabilities` and the `screenshot.sh` contract of section 12 through IPC (`invoke discard` prints `discard`, the 10 s timeout prints nothing).
 - `NX`: paths where a notification could get stuck or lose its place. A `resident` notification after its action, `replaces_id` updates of waiting and hidden notifications, and the order of `dismissAll`.
@@ -318,6 +323,8 @@ N5 and N6 save frame series (`tests/frames.py`: shots at 0, 60, 120, 300 and 900
 - `CPU`: the idle cost of section 7. `top -b -n 5 -d 1` on the bar process, saved to `.test/logs/m4/cpu-idle.log`.
 - `HV`: the hover pause of section 8. A frame series with the pointer on a 3 s note from 1 s to 4 s (the progress line stands still, the note closes after 6 s), the marquee standing still under the pointer, the card counting as the note, and no hover left behind after an unmap under the pointer.
 - `CL`: clicks per the rules table. A left click runs the default action, a right click only dismisses, a left click dismisses a critical without actions, a middle click dismisses the note and the whole queue, also from an OSD over a note.
+- `HP`: hotplug (section 11). `create_output` and an unplug while a note shows on HEADLESS-1, then an unplug of the output that shows a critical and an OSD. The bar of HEADLESS-1 keeps its serial, connects and hides and its 1176 px workspace, the new overlay never maps, both notifications move to HEADLESS-1, and the Quickshell log gets no warning.
+- `TH`: `theme set light` during an OSD and during a note (section 10). No map, no entry, no update, the bar kept, and a frame series where each frame shows one palette.
 - `END`: nothing is left tracked and the overlay is unmapped. It runs last, right after N16.
 
 N1, N3 and N4 also save frame series of the bar strip (`tests/strip-frames.py`, with the slow-motion factor of the `debug` target), N2 and N15 at normal speed.

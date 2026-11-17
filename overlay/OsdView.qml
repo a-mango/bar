@@ -7,7 +7,8 @@ import qs.bar
 // and the summary drawn twice, split at the fill edge: base05 over the empty
 // part, base00 over the fill. It stays readable at 0 % and at 100 %.
 //
-// The view follows Notifs.osd, but keeps what it draws (label, value, color
+// The view follows Notifs.osd while that shows on its output (M6), but
+// keeps what it draws (label, value, color
 // roles) in its own properties. The core drops the entry the moment it
 // closes, and the strip still fades out with the last content. `active`
 // stays true until that fade ends, so the overlay stays mapped for it.
@@ -27,8 +28,11 @@ import qs.bar
 Item {
     id: root
 
-    // The entry on display (null once it closed), from the core.
-    property var entry: Notifs.osd
+    // The output of this view's overlay window.
+    property string output: ""
+    // The entry on display on this output (null once it closed, or while
+    // the OSD shows on another output), from the core.
+    property var entry: Notifs.osdOn(output)
     // Device pixel ratio of the window: the fill edge snaps to physical pixels.
     property real dpr: 1
 

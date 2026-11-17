@@ -23,6 +23,12 @@ ShellRoot {
     // Singletons load on first use: name the ones that must run from startup.
     readonly property list<QtObject> services: [Notifs, Sway, Theme]
 
+    // For tests: every bar window gets a serial number when it is created,
+    // so that `debug state` shows whether a bar was replaced.
+    property int barsCreated: 0
+
+    // One bar and one overlay per screen (docs/SPEC.md section 11). Variants
+    // keeps the instances of the screens that stay when one comes or goes.
     Variants {
         id: bars
         model: Quickshell.screens
@@ -31,6 +37,10 @@ ShellRoot {
             id: bar
             // The mode name elides while this output's overlay shows a note.
             noteOpen: overlays.instances.find(o => o.modelData === bar.modelData)?.noteOpen ?? false
+            Component.onCompleted: {
+                root.barsCreated += 1;
+                serial = root.barsCreated;
+            }
         }
     }
 
@@ -69,7 +79,7 @@ ShellRoot {
         }
 
         function trayMenu(index: int, open: bool): void {
-            const cell = bars.instances[0].tray.cell(index);
+            const cell = (bars.instances.find(b => b.output === Sway.focusedOutput) ?? bars.instances[0]).tray.cell(index);
             if (open)
                 cell.openMenu();
             else
@@ -81,6 +91,8 @@ ShellRoot {
                 overlay: root.overlayMode,
                 theme: Theme.mode,
                 mode: Sway.mode,
+                focusedOutput: Sway.focusedOutput,
+                screens: Quickshell.screens.map(s => s.name),
                 sway: {
                     focused: Sway.focusedOutput,
                     fullscreen: Sway.fullscreenOutputs,
@@ -90,8 +102,12 @@ ShellRoot {
                 received: Notifs.received,
                 notifs: JSON.parse(Notifs.status()),
                 bars: bars.instances.map(b => ({
-                            screen: b.screen.name,
-                            workspaces: Sway.workspacesOn(b.screen.name).map(w => w.name),
+                            screen: b.output,
+                            serial: b.serial,
+                            connects: b.connects,
+                            hides: b.hides,
+                            height: b.height,
+                            workspaces: Sway.workspacesOn(b.output).map(w => w.name),
                             clock: {
                                 width: b.clock.width,
                                 seconds: b.clock.showSeconds,
@@ -109,7 +125,7 @@ ShellRoot {
                             tray: b.tray.count
                         })),
                 overlays: overlays.instances.map(o => ({
-                            screen: o.screen.name,
+                            screen: o.output,
                             clicks: o.clicks,
                             visible: o.visible,
                             maps: o.maps,
@@ -126,7 +142,8 @@ ShellRoot {
                 tray: SystemTray.items.values.map((item, index) => ({
                             id: item.id,
                             status: item.status,
-                            menuOpen: bars.instances[0].tray.cell(index)?.menuOpen ?? false
+                            // On any bar: the menu opens on the bar that was clicked.
+                            menuOpen: bars.instances.some(b => b.tray.cell(index)?.menuOpen ?? false)
                         }))
             });
         }

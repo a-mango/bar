@@ -5,12 +5,15 @@ import Quickshell
 import Quickshell.I3
 import Quickshell.Io
 
-// sway state for the bar: workspaces per output, the binding mode and the
-// fullscreen state per output (docs/SPEC.md section 11).
+// sway state for the bar: workspaces per output, the focused output, the
+// binding mode and the fullscreen state per output (docs/SPEC.md section 11).
 Singleton {
     id: root
 
     property string mode: "default"
+    // The output that has the focus, "" until sway has told. Notifications
+    // show there (Notifs.targetOutput()).
+    readonly property string focusedOutput: I3.focusedMonitor?.name ?? ""
 
     // The workspaces of one output, sorted by number, then by name.
     function workspacesOn(output: string): var {
@@ -47,8 +50,6 @@ Singleton {
     // mode 1 on the output's visible workspace, or any container in global
     // fullscreen (mode 2), which covers every output.
     property list<string> fullscreenOutputs: []
-    // The output a new notification goes to: the focused one (SPEC section 11).
-    readonly property string focusedOutput: I3.focusedMonitor ? I3.focusedMonitor.name : ""
     readonly property bool focusedFullscreen: fullscreenOutputs.includes(focusedOutput)
     // For tests: how many times the tree was read.
     property int treeReads: 0

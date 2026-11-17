@@ -14,7 +14,9 @@
 # and the screenshot.sh outcomes through real clicks), N17 (notes held
 # during fullscreen), the screenshot and plain-note parts of B7, HV (hover
 # pause) and CL (clicks per the rules table). Clicks leave the pointer
-# where they landed, so reset_notifs parks it away from the bar.
+# where they landed, so reset_notifs parks it away from the bar. M6 adds
+# N12 (focused output), HP (hotplug) and TH (theme switches during an OSD
+# and a note).
 # The B cases, the OSD cases and the note view cases set up tests/scene.sh
 # once per session. N16 and END run last, in that order. N16 compares with a
 # screenshot taken before the first case.
@@ -37,8 +39,8 @@ shot() {
     echo "$T/shots/$1/$2.png"
 }
 
-# A dark palette color by name, from themes/.
-palette() { sed -n "s/^@define-color $1 \(#[0-9a-f]*\);/\1/p" "$REPO/themes/base16-default-dark.css"; }
+# palette <name> [dark|light]: a palette color by name, from themes/.
+palette() { sed -n "s/^@define-color $1 \(#[0-9a-f]*\);/\1/p" "$REPO/themes/base16-default-${2:-dark}.css"; }
 
 # check <what> <actual> <expected>: prints the result, fails on a mismatch.
 check() {
@@ -309,11 +311,12 @@ within() {
 # One field of `call notify status`, as a Python expression on `d`.
 notif() { ipc notify status | python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 send() { n notify-send -p "$@"; }
-overlay_mapped() { state "d['overlays'][0]['visible']"; }
-# The overlay of HEADLESS-1 in a state `d`. Until M6 the overlay maps on
-# every output, so surfaces and entries are counted on HEADLESS-1 only.
+# The overlay of HEADLESS-1 in a state `d`. Since M6 a notification maps
+# the overlay of one output only (the focused one), and the cases that do
+# not move the focus run on HEADLESS-1 (reset_notifs focuses it).
 H1="[o for o in d['overlays'] if o['screen'] == 'HEADLESS-1'][0]"
 mapped_h1() { state "$H1['visible']"; }
+overlay_mapped() { mapped_h1; }
 # Waits for the overlay of HEADLESS-1 to unmap: the note view's leave and the
 # OSD's fade-out run after the notification closed (up to about 0.5 s).
 wait_unmapped() {
@@ -323,11 +326,25 @@ wait_unmapped() {
     done
     return 1
 }
-# Every case starts and ends with nothing on display and DND off. The
-# overlays unmap only once their leave animations have ended.
+# focus_main and focus_other move the focus and wait until bar has seen it
+# (Sway.focusedOutput), so that the next notification goes there.
+focus_wait() {
+    for _ in $(seq 30); do
+        [ "$(state "d['focusedOutput']")" = "$1" ] && return 0
+        sleep 0.1
+    done
+    echo "  note: bar still sees the focus on $(state "d['focusedOutput']"), not $1"
+    return 1
+}
+focus_main() { scene focus-main; focus_wait HEADLESS-1; }
+focus_other() { scene focus-other; OTHER=$(scene other); focus_wait "$OTHER"; }
+# Every case starts and ends with nothing on display, DND off and the focus
+# on HEADLESS-1. The overlays unmap only once their leave animations have
+# ended.
 reset_notifs() {
     # The pointer left on the span by a click would pause the next note (M5).
     park
+    focus_main
     ipc notify dismissAll
     ipc notify setDnd false
     ipc debug slow 1
@@ -840,7 +857,7 @@ case_N15() {
     reset_notifs
     id=$(send -t 30000 "Mask check" "clicks beside the note reach the bar")
     sleep 1
-    c0=$(state "d['overlays'][0]['clicks']")
+    c0=$(state "$H1['clicks']")
     echo "  frame series around a click on workspace 3 (normal speed)"
     "$REPO/tests/strip-frames.py" "$T/shots/N15" click 1 0 200 400 700 > "$T/logs/N15-frames.out" &
     fp=$!
@@ -852,12 +869,12 @@ case_N15() {
     shot N15 after-click > /dev/null
     check "workspace 3 focused after a click beside the note" "$(focused_ws)" 3 || f=1
     check "note still on display" "$(notif "d['current']['id']")" "$id" || f=1
-    check "the overlay did not get that click" "$(state "d['overlays'][0]['clicks']")" "$c0" || f=1
+    check "the overlay did not get that click" "$(state "$H1['clicks']")" "$c0" || f=1
     # The upper 72 px of the overlay take no clicks without a card (M5).
     click 700 1150; park; sleep 0.3
-    check "a click above the span reaches the window, not the overlay" "$(state "d['overlays'][0]['clicks']") $(notif "d['current']['id']")" "$c0 $id" || f=1
+    check "a click above the span reaches the window, not the overlay" "$(state "$H1['clicks']") $(notif "d['current']['id']")" "$c0 $id" || f=1
     click 960 $MID; sleep 0.3
-    check "a click on the span reaches the overlay" "$(state "d['overlays'][0]['clicks']")" $((c0 + 1)) || f=1
+    check "a click on the span reaches the overlay" "$(state "$H1['clicks']")" $((c0 + 1)) || f=1
     check "and not the bar's clock under it (no seconds)" "$(state "$(bar1)['clock']['seconds']")" False || f=1
     check "the left click dismissed the note (no default action, M5)" "$(notif "d['note']")" None || f=1
     n swaymsg -q workspace 2
@@ -882,11 +899,11 @@ case_HO() {
         idle=$(shot HO idle)
         id=$(send -t 3000 "Handoff check" "first and last frame")
         sleep 0.6
-        phase1=$(view "(v['phase'], v['c'], v['w'], d['overlays'][0]['visible'])")
+        phase1=$(view "(v['phase'], v['c'], v['w'], $H1['visible'])")
         first=$(shot HO first)
         ipc debug noteRelease
         for _ in $(seq 40); do [ "$(view "v['phase']")" = last ] && break; sleep 0.1; done
-        mapped=$(view "(v['phase'], v['c'], v['w'], d['overlays'][0]['visible'])")
+        mapped=$(view "(v['phase'], v['c'], v['w'], $H1['visible'])")
         last=$(shot HO last)
         ipc debug noteRelease
         wait_unmapped
@@ -976,6 +993,270 @@ case_CPU() {
     avg=$(python3 -c "import sys; v = [float(x.replace(',', '.')) for x in sys.argv[1].split()]; print(f'{sum(v) / len(v):.2f}')" "$samples")
     echo "  top samples (% CPU, pid $pid): $samples-> average $avg (log: $log)"
     check "idle CPU near 0 % (average under 1 %)" "$(python3 -c "print($avg < 1.0)")" True || f=1
+    return $f
+}
+
+# ---- outputs and theme switches (M6) ------------------------------------
+
+# The overlay of the second output in a state `d` (OTHER holds its name).
+H2() { echo "[o for o in d['overlays'] if o['screen'] == '$OTHER'][0]"; }
+# Screens of the bar and overlay windows, sorted: "([bars], [overlays])".
+windows() { state "(sorted(b['screen'] for b in d['bars']), sorted(o['screen'] for o in d['overlays']))"; }
+# The bar window of HEADLESS-1 as "<serial> <connects> <hides>": a bar that
+# is replaced gets a new serial, a backing window that is created again
+# counts a connect, and one that stops being visible counts a hide.
+bar_life() { state "(lambda b: '%d %d %d' % (b['serial'], b['connects'], b['hides']))($(bar1))"; }
+# Height of the visible workspace on HEADLESS-1: 1176 with the bar's
+# exclusive zone, 1200 without it.
+ws_height() {
+    n swaymsg -t get_workspaces | python3 -c 'import json,sys; print([w["rect"]["height"] for w in json.load(sys.stdin) if w["output"] == "HEADLESS-1" and w["visible"]][0])'
+}
+# bar_kept <what> <life before> <height before>: the bar of HEADLESS-1 was
+# never replaced or unmapped, and its exclusive zone holds.
+bar_kept() {
+    local f=0
+    check "$1: HEADLESS-1 bar kept (serial, connects, hides)" "$(bar_life)" "$2" || f=1
+    check "$1: workspace height on HEADLESS-1 (exclusive zone)" "$(ws_height)" "$3" || f=1
+    return $f
+}
+# The Quickshell log: log_mark gives the line count, log_clean fails on any
+# WARN, ERROR or FATAL line after the mark.
+log_mark() { wc -l < "$T/logs/quickshell.log"; }
+log_clean() {
+    local lines
+    lines=$(tail -n "+$(($2 + 1))" "$T/logs/quickshell.log" | grep -E 'WARN|ERROR|CRIT|FATAL' || true)
+    if [ -z "$lines" ]; then
+        echo "  ok    $1: no warning or error in the Quickshell log"
+    else
+        echo "  FAIL  $1: the Quickshell log has:"
+        sed 's/^/          /' <<< "$lines"
+        return 1
+    fi
+}
+osd_on() { send -a volume -t "${2:-3000}" -e -h int:value:"$1" -h string:x-canonical-private-synchronous:volume "Volume: $1%"; }
+
+# N12: a note shows on the output that has the focus when it becomes
+# visible, and stays there until it leaves. An OSD on another output does
+# not pause it, and same-tag OSD updates stay where the OSD started.
+case_N12() {
+    local f=0 a b ta s e0 e1
+    prepare
+    reset_notifs
+    focus_other
+    echo "  second output: $OTHER (1920x1080, scale 1, right of HEADLESS-1), focused"
+    e0=$(state "$(H2)['osd']['entries']")
+    bus_start N12
+    # 9 s, so that the second note is queued while the first still shows.
+    a=$(send -t 9000 "Second screen" "fictional note on the focused output"); ta=$(date +%s.%N)
+    sleep 1
+    check "note placed on the focused output" "$(notif "d['note']['output']")" "$OTHER" || f=1
+    check "overlay of $OTHER mapped, note open" "$(state "($(H2)['visible'], $(H2)['note']['phase'])")" "(True, 'open')" || f=1
+    check "overlay of HEADLESS-1 not mapped" "$(mapped_h1)" False || f=1
+    mkdir -p "$T/shots/N12"
+    n grim -o "$OTHER" "$T/shots/N12/other-note.png"
+    check "note background on $OTHER" "$(PX_SCALE=1 px "$T/shots/N12/other-note.png" color 960 1060)" "$(palette base01)" || f=1
+    more "compact clock drawn on $OTHER" "$(PX_SCALE=1 px "$T/shots/N12/other-note.png" ink 30 1058 120 1078)" 3 || f=1
+    s=$(shot N12 main-idle)
+    check "HEADLESS-1 keeps its idle clock box" "$(px "$s" color 960 $TOP)" "$(palette base00)" || f=1
+
+    echo "  the focus moves back: the note stays on $OTHER"
+    focus_main
+    sleep 0.3
+    check "note still on $OTHER" "$(notif "d['note']['output']")" "$OTHER" || f=1
+    check "overlays ($OTHER, HEADLESS-1) mapped" "$(state "($(H2)['visible'], $H1['visible'])")" "(True, False)" || f=1
+
+    echo "  an OSD on HEADLESS-1 leaves the note on $OTHER running"
+    # 3 s: the same-tag update below has to find this OSD still up.
+    osd_on 30 3000 > /dev/null
+    sleep 0.3
+    check "OSD on the focused output" "$(notif "d['osd']['output']")" HEADLESS-1 || f=1
+    check "note on $OTHER keeps running" "$(notif "d['note']['running']")" True || f=1
+    focus_other
+    osd_on 40 3000 > /dev/null
+    sleep 0.3
+    check "same-tag update stays where the OSD started" "$(notif "(d['osd']['output'], d['osd']['value'])")" "('HEADLESS-1', 40)" || f=1
+    e1=$(state "$(H2)['osd']['entries']")
+    check "no OSD drawn on $OTHER" "$(state "$(H2)['osd']['active']") $((e1 - e0))" "False 0" || f=1
+    focus_main
+
+    echo "  the next note shows on the output focused when it becomes visible"
+    b=$(send "Main screen" "fictional note, queued behind the first")
+    sleep 0.3
+    check "second note waits ($(python3 -c "import time; print('%.1f' % (time.time() - $ta))") s after the first)" "$(notif "d['waiting']")" "[$b]" || f=1
+    until_t "$ta" 9.6
+    check "second note on display, on HEADLESS-1" "$(notif "(d['note']['id'], d['note']['output'])")" "($b, 'HEADLESS-1')" || f=1
+    sleep 0.5
+    check "overlays (HEADLESS-1, $OTHER) mapped after the first note's leave" "$(state "($H1['visible'], $(H2)['visible'])")" "(True, False)" || f=1
+    s=$(shot N12 main-note)
+    check "note background on HEADLESS-1" "$(px "$s" color 960 1179)" "$(palette base01)" || f=1
+    n grim -o "$OTHER" "$T/shots/N12/other-idle.png"
+    check "$OTHER back to its idle clock box" "$(PX_SCALE=1 px "$T/shots/N12/other-idle.png" color 960 1057)" "$(palette base00)" || f=1
+    ipc notify dismiss
+    bus_stop
+    closed_check "first note, not paused by the OSD on HEADLESS-1" "$a" "Second screen" 1 9.0 || f=1
+    reset_notifs
+    return $f
+}
+
+# HP: outputs come and go while notifications show. The bar of HEADLESS-1
+# is never replaced or unmapped and keeps its exclusive zone, a new output's
+# overlay stays unmapped, and a notification whose output goes away moves
+# to the focused one. Nothing may reach the Quickshell log.
+case_HP() {
+    local f=0 mark life h m0 s
+    prepare
+    reset_notifs
+    scene unplug
+    sleep 0.5
+    life=$(bar_life)
+    h=$(ws_height)
+    echo "  HEADLESS-1 bar (serial, connects, hides): $life, workspace height $h"
+    mark=$(log_mark)
+
+    echo "  1. create_output while a note shows on HEADLESS-1"
+    send -t 30000 "Dock check" "fictional note during a hotplug" > /dev/null
+    sleep 1
+    m0=$(state "$H1['maps']")
+    scene plug
+    OTHER=$(scene other)
+    sleep 1
+    check "one bar and one overlay per output" "$(windows)" "(['HEADLESS-1', '$OTHER'], ['HEADLESS-1', '$OTHER'])" || f=1
+    check "overlay of $OTHER never mapped (maps, visible, note)" "$(state "($(H2)['maps'], $(H2)['visible'], $(H2)['note']['phase'])")" "(0, False, 'idle')" || f=1
+    check "note still on HEADLESS-1, same surface (output, visible, new maps, phase)" "$(state "(d['notifs']['note']['output'], $H1['visible'], $H1['maps'] - $m0, $H1['note']['phase'])")" "('HEADLESS-1', True, 0, 'open')" || f=1
+    check "bar of $OTHER shows the workspaces of $OTHER" "$(state "[b['workspaces'] for b in d['bars'] if b['screen'] == '$OTHER'][0]")" \
+        "$(n swaymsg -t get_workspaces | python3 -c "import json,sys; print([w['name'] for w in json.load(sys.stdin) if w['output'] == '$OTHER'])")" || f=1
+    bar_kept "after create_output" "$life" "$h" || f=1
+
+    echo "  2. unplug $OTHER while the note shows on HEADLESS-1"
+    scene unplug
+    sleep 1
+    check "windows of HEADLESS-1 only" "$(windows)" "(['HEADLESS-1'], ['HEADLESS-1'])" || f=1
+    check "note still on HEADLESS-1, same surface (output, visible, new maps, phase)" "$(state "(d['notifs']['note']['output'], $H1['visible'], $H1['maps'] - $m0, $H1['note']['phase'])")" "('HEADLESS-1', True, 0, 'open')" || f=1
+    s=$(shot HP after-unplug)
+    check "note drawn on HEADLESS-1" "$(px "$s" color 960 1179)" "$(palette base01)" || f=1
+    bar_kept "after the unplug" "$life" "$h" || f=1
+    ipc notify dismiss
+    wait_unmapped || true
+
+    echo "  3. unplug the output that shows a critical and an OSD"
+    focus_other
+    send -u critical -a demo-app "Dock check" "fictional critical on the second output" > /dev/null
+    osd_on 70 5000 > /dev/null
+    sleep 0.6
+    check "critical and OSD on $OTHER" "$(notif "(d['note']['output'], d['osd']['output'])")" "('$OTHER', '$OTHER')" || f=1
+    check "critical paused under the OSD" "$(notif "d['note']['running']")" False || f=1
+    m0=$(state "$H1['maps']")
+    scene unplug
+    sleep 1
+    check "both moved to HEADLESS-1" "$(notif "(d['note']['output'], d['osd']['output'])")" "('HEADLESS-1', 'HEADLESS-1')" || f=1
+    check "overlay of HEADLESS-1: mapped once, OSD shown, note open below it" "$(state "($H1['visible'], $H1['maps'] - $m0, $H1['osd']['active'], $H1['note']['phase'])")" "(True, 1, True, 'open')" || f=1
+    check "critical still paused under the OSD" "$(notif "d['note']['running']")" False || f=1
+    s=$(shot HP moved-osd)
+    check "OSD fill on HEADLESS-1" "$(px "$s" color 2 $TOP)" "$(palette base0D)" || f=1
+    ipc notify dismiss # the OSD while one shows (Q7)
+    sleep 0.5
+    s=$(shot HP moved-critical)
+    check "critical drawn on HEADLESS-1 (base08)" "$(px "$s" color 960 1179)" "$(palette base08)" || f=1
+    check "critical runs again (it has no timeout, so it stays)" "$(notif "(d['note']['kind'], d['note']['running'])")" "('critical', True)" || f=1
+    check "windows of HEADLESS-1 only" "$(windows)" "(['HEADLESS-1'], ['HEADLESS-1'])" || f=1
+    bar_kept "after the unplug of the critical's output" "$life" "$h" || f=1
+    log_clean "create_output and two unplugs" "$mark" || f=1
+    reset_notifs
+    return $f
+}
+
+# theme_frames <dir> <x> <y> <name> <x> <y> <name>...: for each shot of
+# the last frame series, which palette each probe matches ("dark", "light"
+# or the color itself). Prints one line per shot.
+theme_frames() {
+    python3 - "$FJ" "$REPO" "$@" <<'PY'
+import json, re, subprocess, sys
+fj, repo, probes = sys.argv[1], sys.argv[2], sys.argv[3:]
+pal = {}
+for mode in ("dark", "light"):
+    css = open(f"{repo}/themes/base16-default-{mode}.css").read()
+    pal[mode] = dict(re.findall(r"@define-color (base0[0-9A-F]) (#[0-9a-f]{6});", css))
+d = json.load(open(fj))
+for s in d["shots"]:
+    out = []
+    for i in range(0, len(probes), 3):
+        x, y, role = probes[i:i + 3]
+        c = subprocess.run([f"{repo}/tests/pixel.py", s["file"], "color", x, y], capture_output=True, text=True).stdout.strip()
+        names = [m for m in ("dark", "light") if pal[m][role] == c]
+        out.append("both" if len(names) == 2 else names[0] if names else c)
+    print("%d %.1f %s" % (s["at"], s["frame_ms"], " ".join(out)))
+PY
+}
+
+# TH: `theme set light` while an OSD and while a note shows. Colors change
+# in place: no map, no entry, the bar is neither replaced nor unmapped and
+# keeps its exclusive zone. The frame series show each frame's palette.
+case_TH() {
+    local f=0 life h mark c0 c1 m0 s rows bad mixed sched
+    prepare
+    reset_notifs
+    life=$(bar_life)
+    h=$(ws_height)
+    mark=$(log_mark)
+    sched=("0 shot" "17 shot" "33 shot" "50 shot" "67 shot" "83 shot" "100 shot" "150 shot" "200 shot" "300 shot")
+
+    echo "  during an OSD"
+    # 15 s, so that the OSD is still up for every check below.
+    osd_on 60 15000 > /dev/null
+    sleep 0.5
+    c0=$(osd_counts)
+    m0=$(state "$H1['maps']")
+    frames TH/osd "10 run quickshell ipc -p $REPO call theme set light" "${sched[@]}"
+    c1=$(osd_counts)
+    check "OSD still shown, opaque (visible, new maps, active, opacity)" "$(state "($H1['visible'], $H1['maps'] - $m0, $H1['osd']['active'], $H1['osd']['opacity'])")" "(True, 0, True, 1)" || f=1
+    counts_check "theme switch during the OSD" "$c0" "$c1" 0 0 0 || f=1
+    s=$(shot TH osd-light)
+    check "OSD fill (base0D in both palettes)" "$(px "$s" run 2 $TOP)" "0 1152" || f=1
+    check "OSD empty part in light base00" "$(px "$s" color 1900 $TOP)" "$(palette base00 light)" || f=1
+    more "OSD label over the fill in light base00" "$(px "$s" count "$(palette base00 light)" 900 1177 1020 1199)" 50 || f=1
+    check "no dark base00 left in the label" "$(px "$s" count "$(palette base00)" 900 1177 1020 1199)" 0 || f=1
+    echo "  frames (requested -> frame time, ms): $(frame_times); $FD/sheet.png"
+    # Per frame: the fill (base0D, the same in both palettes) and the empty part.
+    rows=$(theme_frames 2 $CTOP base0D 1900 $CTOP base00)
+    echo "  per frame (ms, frame ms, fill, empty part):"
+    sed 's/^/          /' <<< "$rows"
+    bad=$(awk '$3 != "both" || ($4 != "dark" && $4 != "light")' <<< "$rows")
+    check "every frame shows the OSD in one palette" "${bad:-none}" none || f=1
+    check "last frame light" "$(tail -n 1 <<< "$rows" | awk '{print $4}')" light || f=1
+    bar_kept "after theme set light during the OSD" "$life" "$h" || f=1
+    ipc notify dismiss
+    wait_unmapped || true
+
+    echo "  during a note"
+    ipc theme set dark
+    sleep 0.3
+    send -t 15000 "Theme check" "fictional note across a theme switch" > /dev/null
+    sleep 1
+    m0=$(state "$H1['maps']")
+    frames TH/note "10 run quickshell ipc -p $REPO call theme set light" "${sched[@]}"
+    check "note still open on the same surface (new maps, phase, c, w)" "$(state "($H1['maps'] - $m0, $H1['note']['phase'], $H1['note']['c'], $H1['note']['w'])")" "(0, 'open', 1, 1)" || f=1
+    echo "  frames (requested -> frame time, ms): $(frame_times); $FD/sheet.png"
+    # Per frame: the bar (workspace 1, base00), the note span (base01) and
+    # the compact clock (base00, both drawn by the overlay).
+    rows=$(theme_frames 13 $CTOP base00 960 75 base01 150 $CTOP base00)
+    echo "  per frame (ms, frame ms, bar, note span, compact clock):"
+    sed 's/^/          /' <<< "$rows"
+    bad=$(awk '($3 != "dark" && $3 != "light") || ($4 != "dark" && $4 != "light") || $4 != $5' <<< "$rows")
+    check "every frame: bar in one palette (no window over its rows), overlay in one palette" "${bad:-none}" none || f=1
+    mixed=$(awk '$3 != $4 { printf "%s ", $1 }' <<< "$rows")
+    echo "  info  frames where the bar and the overlay show different palettes: ${mixed:-none}"
+    check "last frame light" "$(tail -n 1 <<< "$rows" | awk '{print $3, $4}')" "light light" || f=1
+    s=$(shot TH note-light)
+    check "note span in light base01" "$(px "$s" color 960 1179)" "$(palette base01 light)" || f=1
+    check "focused workspace in light base07" "$(px "$s" color 39 $TOP)" "$(palette base07 light)" || f=1
+    bar_kept "after theme set light during the note" "$life" "$h" || f=1
+    ipc theme set dark
+    sleep 0.3
+    s=$(shot TH note-dark-again)
+    check "back in dark: note span base01" "$(px "$s" color 960 1179)" "$(palette base01)" || f=1
+    bar_kept "after theme set dark" "$life" "$h" || f=1
+    log_clean "three theme switches" "$mark" || f=1
+    reset_notifs
     return $f
 }
 
