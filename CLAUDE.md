@@ -18,11 +18,11 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - `tests/clip.sh <round> [scene...]`: review clips through wf-recorder (lossless, bottom 96 px of HEADLESS-1) into `.test/clips/<round>/`, one per scene plus `all.mp4`. `tests/clip-ab.py OUT.mp4 A.mp4 B.mp4 ...` stacks clips aligned on the first frame with the note edge. Play at native size: `mpv --loop --video-unscaled=yes`.
 - `make shaders`: compile `shaders/*.frag` to `.qsb` with `/usr/lib64/qt6/bin/qsb`
 - `make lint`: `qmllint` on all QML files through `tests/lint.sh` (needs `qt6-qtdeclarative-devel`)
-- `make install`: copy the tree to `~/.local/share/bar` as the live copy (M8 only, after the owner's go-ahead)
+- `make install`: build the live copy in `~/.local/share/bar` from the tagged, committed HEAD (shaders, `live` marker), then `systemctl --user restart bar.service`. Only with the owner's go-ahead. `DEST=/abs/path` installs elsewhere (dry run in a `bare` nested session).
 
 ## Rules
 - Quickshell API: check every type, property, signal and enum in `/usr/lib64/qt6/qml/Quickshell/**/*.qmltypes` before using it, never from memory. Fedora ships snapshot `0.2.1^git20260209.dacfa9d`, and the online docs track a newer version.
-- IMPORTANT: the live session is off limits until M8 is approved. Do not stop, reload or reconfigure mako or waybar. Do not edit `~/.config/sway`, `~/.config/waybar`, `~/.config/mako`, `~/.local/share/darkman`, `~/.local/share/dbus-1` or `~/.config/systemd/user`. Never run `quickshell`, `notify-send` or a tray test against the real `WAYLAND_DISPLAY` or session bus.
+- IMPORTANT: since the M8 cutover (2026-11-18) the live bar runs from `~/.local/share/bar` as `bar.service`, and mako is uninstalled. Touch the live session only with the owner's go-ahead in the session: no restart of `bar.service`, no `make install`, no edit of `~/.config/sway`, `~/.local/share/darkman`, `~/.local/share/dbus-1` or `~/.config/systemd/user`, no `swaymsg reload`. Never run `quickshell` on this tree, a tray test or the matrix against the real `WAYLAND_DISPLAY` or session bus. Rollback: `docs/PLAN.md` section 6.
 - Read the replaced configs from `docs/reference/`, not from the live directories.
 - Nested sway only through `tests/nested.sh` (absolute paths, overridden `SWAYSOCK`, minimal config, private bus). Never start sway with the user's config.
 - Real tray applets act on the real system (network, Bluetooth, audio). If one runs in the nested session, only open and close its menu, never trigger an entry. Activation and menu-click tests use `tests/fake-sni.py`.
@@ -43,7 +43,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 <!-- Add one line per non-obvious lesson learned; prune when obsolete. -->
 - The binary is `quickshell`, not `qs`. IPC: `quickshell ipc -p <config dir> call <target> <fn>`, and it only sees instances on the current Wayland display.
 - Use the long form `--no-duplicate`: the help text lists `-n` for both `--newest` and `--no-duplicate`.
-- Quickshell hot-reloads on every file change, but can miss the second of two quick edits. If the log shows no second `Configuration Loaded`, `touch` the file. The live copy (M8) runs from `~/.local/share/bar` with `Quickshell.watchFiles` set to false, never from this tree.
+- Quickshell hot-reloads on every file change, but can miss the second of two quick edits. If the log shows no second `Configuration Loaded`, `touch` the file. The live copy runs from `~/.local/share/bar`, never from this tree: its `live` file (written by `make install`) makes `shell.qml` set `Quickshell.watchFiles` to false, and `debug state` reports `live` and `watchFiles`. A running live instance does not pick up a new install until `bar.service` restarts.
 - `Notifs.current` passes through `null` when the next note takes the span. Views read it through `Qt.callLater`, or a queue roll looks like a leave and an entry.
 - The note view draws from snapshots: the leave and the roll run after the notification closed. The overlay's visibility follows `NoteView.active`, not `Notifs.current`.
 - A host suspend during `make matrix` breaks the timing checks of the running case (a 1.5 s timeout measured as 40,049 s). Before chasing a timing failure, check `journalctl | grep 'will suspend now'`.
@@ -101,3 +101,6 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - The notification history keeps 20 entries, and a full matrix run fills it. Check `newest` in `notify status`, not a count that grows.
 - A notification maps only the overlay of the output it was placed on (`output` in `notify status`), the focused one when it became visible. `reset_notifs` in `tests/matrix.sh` focuses HEADLESS-1. Cases that move the focus use `focus_other` and `focus_main`, which wait until `debug state` reports the new `focusedOutput`.
 - Entries are plain JS objects without change signals: set `e.output` before assigning `osd` or `current`, and bump `Notifs.placed` when an entry on display moves, or a view sees the entry without its output.
+- The live session exports `QT_QPA_PLATFORMTHEME=qt6ct` (icon theme `Adwaita`, a dangling `~/.local/share/icons/Adwaita` link), the nested session nothing. `bar.service` sets `QS_ICON_THEME=AdwaitaLegacy`, the theme waybar used through GTK. Test named tray icons with `FAKE_SNI_ICON=<name> tests/fake-sni.py`: by default it sends a pixmap only.
+- Flatpak apps (Teams for Linux) register their tray item through `xdg-dbus-proxy`: the bus name and PID belong to the proxy. `flatpak ps` maps the PID back to the app.
+- sway starts `swaybar_command` at config load only, not after the bar dies or on a hotplug. `90-bar.conf` keeps waybar's block commented out so that a `swaymsg reload` does not bring waybar back.

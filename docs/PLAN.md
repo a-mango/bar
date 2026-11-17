@@ -420,6 +420,16 @@ Done when:
 - The live checks in section 6 pass, including a logout and login.
 - The owner has used it for a day without rolling back.
 
+Status (2026-11-18, branch `m8-cutover`, not merged until the day of use is over): bar runs on the live desktop since 00:09:36, and owns both names (`busctl --user status`: `quickshell`, unit `bar.service`). Live checks in progress, see the list below. Evidence in `.test/logs/m8/` and `.test/shots/m8/`.
+
+- Before going live: the live marker and `make install` (commits `c89cbfd`, `2730c7c`, tag `v1.0`). The whole matrix passed at `v1.0`, 37 cases with exit status 0 in 10 min 4 s (`matrix.log`). A dry run of the installed copy in a `bare` nested session owned both names, logged `bar: live copy v1.0, file watching off`, did not reload after four file changes (one `Configuration Loaded`, bar serial 1, no hide), and drew the halo (`dryrun-quickshell.log`, `.test/shots/m8/dryrun-note-edge.png`).
+- Order used: inert files first (copy, unit enabled but not started, `bar {}` commented out, bindings file, `bar.sh`), then the owner's `sudo dnf remove mako`, then the activation file, `ReloadConfig`, and in one block `pkill -x waybar`, `systemctl --user start bar.service` (up 0.9 s after waybar died), the two `chmod -x` and the five live `swaymsg` binding commands. waybar stayed gone for 10 s, and the workspace kept 1176 px (waybar ignores sway's `mode hide` without `"ipc": true`, so it reserved the same 24 px).
+- Tray: 11 of 11 items registered again with bar, from the same processes, the two Flatpak apps included (`tray-before.tsv`, `tray-after.tsv`; blueman under a new bus name, same PID).
+- Fixed live: named tray icons drew Qt's magenta placeholder (`Environment=QS_ICON_THEME=AdwaitaLegacy` in the unit, commit `5045c69`), and `Passive` items were drawn dimmed where waybar hid them (the owner's report; commit `60513bc`, SPEC section 3, matrix B5). See M8 findings.
+- Restart check (`systemctl --user restart bar.service`, 0.6 s): 9 items. The other two had exited before the restart: Teams for Linux quit at 00:11:09 through an entry of its own tray menu (bar forwarded a `clicked` event to it one second earlier), and the artcraft launcher crashed at 00:10:37 opening a window (`wl_registry#2: error 0: global wl_output (122) is unavailable`, its bug with a removed output). The 9 running applets all registered again (`tray-after-restart.tsv`).
+
+Live checks done: both names owned, tray by process, restart. Still to do with the owner: one tray menu opened and closed; workspace click, `$mod+r`, `present:` mode; clock toggle and calendar; volume, brightness and microphone keys, also over fullscreen; screenshot and right click; `$mod+Shift+d` twice, `$mod+n`, `$mod+Ctrl+n`, a critical; a note during fullscreen; `darkman toggle` twice; logout and login.
+
 ## 6. Cutover and rollback
 
 The live instance runs from a copy, with file watching off. Quickshell reloads whenever its files change, and a reload of the live bar would unmap it and re-tile every window.
@@ -429,18 +439,18 @@ Cutover steps:
 1. `make install` runs `make shaders` first (`*.qsb` is gitignored, and without `shaders/wipe.frag.qsb` the note edge has no halo), then copies the tagged tree to `~/.local/share/bar` (`rsync`, excluding `.git`, `.test`, `docs` and `tests`) and marks the copy as live, so that it sets `Quickshell.watchFiles` to false.
 2. Install `packaging/bar.service` to `~/.config/systemd/user/`:
    - `[Unit]`: `PartOf=graphical-session.target`, `After=graphical-session.target`, `StartLimitIntervalSec=60`, `StartLimitBurst=5`
-   - `[Service]`: `Type=dbus`, `BusName=org.freedesktop.Notifications`, `ExecCondition=/bin/sh -c '[ -n "$WAYLAND_DISPLAY" ]'`, `ExecStart=/usr/bin/quickshell -p %h/.local/share/bar --no-duplicate`, `Restart=on-failure`, `RestartSec=1`
+   - `[Service]`: `Type=dbus`, `BusName=org.freedesktop.Notifications`, `ExecCondition=/bin/sh -c '[ -n "$WAYLAND_DISPLAY" ]'`, `Environment=QS_ICON_THEME=AdwaitaLegacy` (the tray icons, M8 findings), `ExecStart=/usr/bin/quickshell -p %h/.local/share/bar --no-duplicate`, `Restart=on-failure`, `RestartSec=1`
    - `[Install]`: `WantedBy=sway-session.target`, so the watcher is up within `wait-sni-ready`'s 25 s at login
 
    Then run `systemctl --user daemon-reload` and `systemctl --user enable bar.service`.
 3. Install `packaging/org.freedesktop.Notifications.service` to `~/.local/share/dbus-1/services/`: `Name=org.freedesktop.Notifications`, `Exec=/usr/bin/quickshell -p /home/acm/.local/share/bar --no-duplicate` (D-Bus files do not expand `%h`), `SystemdService=bar.service`.
-4. The owner runs `systemctl --user stop mako.service && sudo dnf remove mako`. This also deletes mako's activation file, so bar's file is the only one claiming the name. Then ask the bus to reload (`busctl --user call org.freedesktop.DBus / org.freedesktop.DBus ReloadConfig`).
+4. The owner runs `sudo dnf remove mako`. This also deletes mako's activation file, so bar's file is the only one claiming the name. Then ask the bus to reload (`busctl --user call org.freedesktop.DBus / org.freedesktop.DBus ReloadConfig`). Install bar's activation file (step 3) only after the removal: while mako's file exists, a notification sent when nobody owns the name starts mako again. On 2026-11-18 the removal also stopped mako, so the name had no owner until step 8 (about a minute).
 5. Count the tray items: `busctl --user get-property org.kde.StatusNotifierWatcher /StatusNotifierWatcher org.kde.StatusNotifierWatcher RegisteredStatusNotifierItems` (11 on 2026-11-11).
 6. In `~/.config/sway/config.d/90-bar.conf`, comment out the `bar {}` block first, so that no later `swaymsg reload` brings waybar back. Remove `bindsym $mod+m bar hidden_state toggle` (decision D4) and drop it live with `swaymsg unbindsym $mod+m`. Do not reload sway: `exec_always` entries (the wallpaper rotation) would run again.
-7. `pkill -x waybar`, then check for 10 s that sway does not start it again.
+7. `pkill -x waybar`, then check for 10 s that sway does not start it again. Sway 1.11 starts `swaybar_command` at config load only: not after the process dies, nor on a new output, an unplug or an output disable and enable (checked in a nested session, `.test/logs/m8/hotplug-fakebar.log`).
 8. `systemctl --user start bar.service`. Check that `busctl --user status org.freedesktop.Notifications` and `busctl --user status org.kde.StatusNotifierWatcher` both show `quickshell`, then count the tray items again. An applet that did not register again gets restarted, and its name goes in the CLAUDE.md gotchas.
-9. darkman: `chmod -x ~/.local/share/darkman/waybar.sh` (renaming is not enough, since darkman runs any executable file in the directory). Install `packaging/darkman-bar.sh` as `~/.local/share/darkman/bar.sh` with the executable bit set. The hook calls `quickshell ipc --any-display -p ~/.local/share/bar call theme set "$1"` (SPEC section 10).
-10. Install `packaging/sway-bindings.conf` as `~/.config/sway/config.d/60-bindings-notifications.conf` (decision D3: `$mod+n`, `$mod+Shift+n`, `$mod+Ctrl+n`, `$mod+Shift+d`). Apply each binding live with `swaymsg bindsym ...` (again without a reload).
+9. darkman: `chmod -x ~/.local/share/darkman/waybar.sh ~/.local/share/darkman/mako.sh` (renaming is not enough, since darkman runs any executable file in the directory; `mako.sh` exits 1 once mako is gone). Install `packaging/darkman-bar.sh` as `~/.local/share/darkman/bar.sh` with the executable bit set. The hook calls `quickshell ipc --any-display -p ~/.local/share/bar call theme set "$1"` (SPEC section 10).
+10. Install `packaging/sway-bindings.conf` as `~/.config/sway/config.d/60-bindings-notifications.conf` (decision D3: `$mod+n`, `$mod+Shift+n`, `$mod+Ctrl+n`, `$mod+Shift+d`). Apply each binding live with `swaymsg bindsym ...` (again without a reload). Write `Mod4`, not `$mod`: sway variables exist at config load only, and the shell would expand `$mod` to nothing.
 
 Live checks, with fictional text where a notification is involved:
 
@@ -460,8 +470,8 @@ About a week later: `sudo dnf remove waybar` (optional), and archive `~/.config/
 Rollback:
 
 1. `systemctl --user disable --now bar.service`, then remove `~/.local/share/dbus-1/services/org.freedesktop.Notifications.service`.
-2. `sudo dnf install mako`.
-3. Restore the `bar {}` block in `90-bar.conf`, `chmod +x ~/.local/share/darkman/waybar.sh`, and remove `bar.sh`.
+2. `sudo dnf install mako`, or offline from the copy kept at cutover: `sudo dnf install .test/m8-rollback/mako-1.11.0-1.fc44.x86_64.rpm`.
+3. Restore the `bar {}` block in `90-bar.conf` (the original is in `.test/m8-rollback/90-bar.conf.orig`), `chmod +x ~/.local/share/darkman/waybar.sh ~/.local/share/darkman/mako.sh`, run `~/.local/share/darkman/waybar.sh "$(darkman get)"` so that waybar's palette link matches the mode, and remove `bar.sh`.
 4. `swaymsg reload` to start waybar again (this one reload is accepted). Remove `60-bindings-notifications.conf`, and run `makoctl mode -a do-not-disturb` if DND is wanted.
 
 ## 7. Decisions
@@ -722,6 +732,16 @@ Measured in the nested session on 2026-11-17 (clips in `.test/clips/`, shots in 
 
 - **Tray menus in QML (Q2 look).** A `PopupWindow` with `grabFocus` gets an xdg_popup grab. Checked in the nested session: a click on another client closes the popup and its child popups; keys typed while it is open still reach the focused client (`.test/logs/m7/client.out`), so the grab does not decide the keyboard half of Q2; a grab opened through IPC (`debug trayMenu`) without a fresh click stays up; a child `PopupWindow` anchored to a row maps and closes with its parent. Clicks on bar's own surfaces do not dismiss the grab (same client), so the cell toggles its menu and the bar closes menus on a press outside the tray. A `TapHandler` on an item over the bar swallowed those presses (the workspace buttons stopped working); a `PointHandler` watches them without taking them. `tests/fake-sni.py` now has a checkbox, a radio item, a disabled item and a submenu, after ids 1 to 4 (`.test/shots/m7/tray-menu-qml.png`: both themes, submenu open, a row hovered). `shell.qml` keeps `//@ pragma UseQApplication`, which nothing needs any more.
 - **Contrast in both themes.** A contrast audit of every text color against its background (WCAG ratio, composited opacity) found three weak pairs, all fixed with the owner: critical text in light mode (`base07` `#181818` on `base08`, 3.1:1, the dimmed app name 2.4:1) now uses `Theme.onCritical` (`#f8f8f8` in both modes, 5.4:1, dimming 90 % and 95 % for 4.7 and 5.0:1); the urgent workspace label (waybar's `base05` on `base08`, 4.0:1 dark and 2.1:1 light) uses `Theme.onCritical`; the mode label (waybar's `base07` on `base04`, 1.9:1 dark and 2.5:1 light) uses `base00` (9.0 and 6.7:1). Every other text is at 5:1 or more in both modes (`.test/shots/m7/critical-both/sheet.png`, `.test/shots/m7/bar-both/sheet.png`). Non-text pairs stay low by design: the card frame (`base01` on `base00`, 1.2:1), the separator and the progress line (`base03`).
+
+### M8 findings
+
+Found on the live desktop on 2026-11-18 (logs in `.test/logs/m8/`, shots in `.test/shots/m8/`).
+
+- **Tray icon theme.** The session exports `QT_QPA_PLATFORMTHEME=qt6ct` and `QT_STYLE_OVERRIDE=kvantum`, which the nested session (`env -i`) never had. qt6ct names the icon theme `Adwaita`, and `~/.local/share/icons/Adwaita` is a link to `/usr/share/icons/Adwaita-legacy`, which no longer exists (the folder is `AdwaitaLegacy` now). Qt then found none of the applets' names (`drive-removable-media`, `battery-low`, `system-lock-screen`, `applications-internet`, `audio-volume-medium`), and five cells showed the magenta and black placeholder (`.test/shots/m8/live-tray-v1.0.png`). waybar is GTK and used gsettings' `AdwaitaLegacy`. Quickshell reads `QS_ICON_THEME` (the twin of `//@ pragma IconTheme`), so `bar.service` sets it, and the tree and the tests stay as they were. Reproduced and checked in a nested session with three fake items sending those names (`FAKE_SNI_ICON`, `.test/shots/m8/icons-ab.png`: 3 load failures with qt6ct, none with the variable). Left over: `-symbolic` names that only `Adwaita` has (`bluetooth-symbolic`, `application-x-addon-symbolic` in menus); GTK falls back to `Adwaita` on its own, Qt does not. The dangling link also affects the owner's other Qt apps, and is the owner's to fix or keep.
+- **Passive items.** waybar's tray hides `Passive` items unless `show-passive-items` is set (`man waybar-tray`, default false). The `#tray > .passive` dim rule in the reference `style.css` therefore never applied, and SPEC section 3 had copied it. solaar, udiskie and wayvnc-tray are `Passive` most of the time. bar now hides them and the Row closes the gap (matrix B5: one icon drawn, the leftmost slot empty, the tray start 30 px further right, and both drawn again once Active).
+- **Named icons in the tests.** `tests/fake-sni.py` sent a pixmap only, so no test loaded a theme icon. `FAKE_SNI_ICON=<name>` makes it send a name as well.
+- **Flatpak tray items.** Teams for Linux and the artcraft launcher register through `xdg-dbus-proxy`: the item's bus name and PID are the proxy's, and `flatpak ps` maps them back to the app. Both registered again at the waybar to bar switch.
+- **mako at removal.** `sudo dnf remove mako` also stopped the running mako, so nobody owned `org.freedesktop.Notifications` until bar started, about a minute later.
 
 ### Open questions for the owner
 
