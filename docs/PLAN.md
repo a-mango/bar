@@ -428,6 +428,8 @@ Status (2026-11-18, branch `m8-cutover`, not merged until the day of use is over
 - Fixed live: named tray icons drew Qt's magenta placeholder (`Environment=QS_ICON_THEME=AdwaitaLegacy` in the unit, commit `5045c69`), and `Passive` items were drawn dimmed where waybar hid them (the owner's report; commit `60513bc`, SPEC section 3, matrix B5). See M8 findings.
 - Restart check (`systemctl --user restart bar.service`, 0.6 s): 9 items. The other two had exited before the restart: Teams for Linux quit at 00:11:09 through an entry of its own tray menu (bar forwarded a `clicked` event to it one second earlier), and the artcraft launcher crashed at 00:10:37 opening a window (`wl_registry#2: error 0: global wl_output (122) is unavailable`, its bug with a removed output). The 9 running applets all registered again (`tray-after-restart.tsv`).
 
+- `v1.1` (tag on `a434677`, code as at `5045c69`): the whole matrix passed, 37 cases with exit status 0 in 10 min 42 s (`matrix-v1.1.log`). Installed and restarted: `debug state` gives `live` v1.1, 9 items, 6 drawn (solaar, udiskie and wayvnc-tray `Passive`), bar serial 1 at 24 px (`.test/shots/m8/live-tray-v1.1.png`).
+
 Live checks done: both names owned, tray by process, restart. Still to do with the owner: one tray menu opened and closed; workspace click, `$mod+r`, `present:` mode; clock toggle and calendar; volume, brightness and microphone keys, also over fullscreen; screenshot and right click; `$mod+Shift+d` twice, `$mod+n`, `$mod+Ctrl+n`, a critical; a note during fullscreen; `darkman toggle` twice; logout and login.
 
 ## 6. Cutover and rollback
