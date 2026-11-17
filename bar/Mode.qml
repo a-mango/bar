@@ -23,7 +23,9 @@ Rectangle {
         x: 7
         width: root.width - 14
         text: Sway.mode
-        color: Theme.base07
+        // base00 on base04 (M7): 9.0:1 dark, 6.7:1 light. waybar's base07
+        // gave 1.9 and 2.5:1.
+        color: Theme.base00
         font.italic: true
         elide: Text.ElideRight
     }

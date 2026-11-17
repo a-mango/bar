@@ -62,7 +62,7 @@ Text rendering: Qt's native (FreeType) renderer, set for the whole process with 
 
 ## 3. Bar
 
-The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `make reference` screenshot of waybar in the nested session is the visual target.
+The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `make reference` screenshot of waybar in the nested session is the visual target, except for two text colors that M7 changed for contrast in both themes (the urgent workspace and the mode label below).
 
 ### Left: workspaces and mode
 
@@ -71,10 +71,10 @@ The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `ma
   - Default: `base00` background, `base05` text.
   - Visible on this output but not focused: `base02` background, `base07` text.
   - Focused: `base07` background, `base00` text.
-  - Urgent: `base08` background.
+  - Urgent: `base08` background, `Theme.onCritical` text (`#f8f8f8` in both modes, 5.4:1). waybar's `base05` gave 4.0:1 in dark mode and 2.1:1 in light mode (M7).
   - Hover: `base03` background.
 - Buttons have 5 px horizontal padding around a content box of at least 16 px, and no rounded corners. Labels are bold, as the GTK theme draws waybar's buttons. A left click activates the workspace (`I3Workspace.activate()`). Scrolling does nothing (waybar's `disable-scroll`).
-- The sway mode follows the workspaces with a 6 px gap (waybar's 4 px margin plus 2 px module spacing). It is hidden in `default`. Other modes show their name in italics, `base07` on `base04`, with 7 px padding. Source: an `I3IpcListener` subscribed to `mode` events, with the initial mode from `swaymsg -t get_binding_state` (spike S10).
+- The sway mode follows the workspaces with a 6 px gap (waybar's 4 px margin plus 2 px module spacing). It is hidden in `default`. Other modes show their name in italics, `base00` on `base04`, with 7 px padding (9.0:1 dark, 6.7:1 light; waybar's `base07` gave 1.9 and 2.5:1, M7). Source: an `I3IpcListener` subscribed to `mode` events, with the initial mode from `swaymsg -t get_binding_state` (spike S10).
 - The mode name always shows in full while no note is visible. The `present:` mode doubles as a cheat sheet (`~/.config/sway/config.d/60-bindings-present.conf`), and waybar cuts it short today. The text only elides on the right if a note would otherwise get less than 600 px. The 600 px are the whole center span of section 4 (M4 choice, question Q14 in `PLAN.md` section 8). The label elides from the first frame of the note's entry to the last frame of its leave. A name that already runs under the clock when idle keeps the bar's clock box over it, empty while the note shows (question Q13).
 
 ### Center: clock
@@ -88,8 +88,9 @@ The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `ma
 
 - `SystemTray.items`, icons 16 px, 14 px apart.
 - `Passive` items are dimmed (opacity 0.5). `NeedsAttention` items blink on `base08`, alternating every 0.5 s like the `blink` keyframes in `style.css`.
-- Left click: `activate()`, or open the menu if `onlyMenu` is true. Middle click: `secondaryActivate()`. Right click: open the menu through `QsMenuAnchor`. Scroll: `scroll(delta, horizontal)`.
-- `QsMenuAnchor` needs `//@ pragma UseQApplication` in `shell.qml`. Its menu is a QtWidgets menu that does not use `Theme` (spike S9, question Q2 in `PLAN.md` section 8).
+- Left click: `activate()`, or open the menu if `onlyMenu` is true. Middle click: `secondaryActivate()`. Right click: open the menu, or close it when it is open. Scroll: `scroll(delta, horizontal)`.
+- Menus are drawn in QML (`bar/TrayMenu.qml`, M7, the look half of Q2): a `PopupWindow` over `QsMenuOpener`'s entries, `base00` with a 1 px `base03` frame, rows of 24 px with 8 px padding, entry text `base05`, a hovered row `base07` on `base02`, a disabled entry `base04` (6.7:1 or more in both modes), a 1 px `base03` separator, `✓` and `●`/`○` marks, 16 px icons, and `‹` on an entry with a submenu. The menu grows up and to the left from the icon. A submenu opens on a click, to the left of its row with its bottom on the row's bottom, so it grows away from the output's edges. A click on an entry triggers it and closes every open menu.
+- The menu grabs the pointer (`grabFocus`): a click on another client closes the menus. Clicks on bar's own surfaces do not, so a second right click on the icon closes its menu, opening one menu closes the others, and a press on the bar outside the tray closes them (a passive `PointHandler`, so the press still reaches the button under it). The grab leaves the keyboard with the focused window, as the QtWidgets menu did (M7 spike).
 - Tooltip after 400 ms of hover: `tooltipTitle` (`base07`) over `tooltipDescription` (`base05`, simple markup allowed), in the same frame as the calendar. It grows up and to the left from the icon's top right corner, because sway does not slide popups of layer surfaces back onto the output.
 - The tray box has 7 px padding on both sides, so the last icon ends 7 px from the right edge.
 - The watcher and the host run inside bar. Quickshell registers `org.kde.StatusNotifierWatcher` and retries when the current owner leaves. At login, `/usr/libexec/sway-systemd/wait-sni-ready` waits up to 25 s for a watcher with a registered host before it starts the XDG autostart applets.
@@ -109,16 +110,16 @@ Rich card (decision D1): it sits in the overlay's upper 72 px, at the note regio
 
 Center span: while a note is visible, it runs from the end of the left section (plus 8 px) to the start of the tray (minus 8 px). From left to right, it holds the compact clock `HH:mm`, a `│` separator in `base03`, then the note line.
 
-- The compact clock is the bar's clock box made narrow: `base07` on `base00` with 7 px padding (54 px). With seconds shown in the bar, it keeps `HH:mm:ss`, so only the date leaves (M4 choice, Q15).
+- The compact clock is the bar's clock box made narrow: `base07` on `base00` with 7 px padding (54 px). With seconds shown in the bar, it is `HH:mm` too: the full text is then left-aligned, so the seconds leave on the right (M7, Q15).
 - The separator takes one character cell (8 px) on the bar's background.
 - The note region runs from the separator to the span's end: `base01` (`base08` on critical), 7 px padding on both sides, the parts of the line 8 px apart.
 
 Note line, left to right:
 
 - Icon (16 px), from `image` or `appIcon` through `Quickshell.iconPath()`. Browsers and chat apps often send `image-data` (avatars, site icons). Outside rich mode, that image only fills this icon. An icon that does not load takes no room.
-- App name in `base04`, summary in `base07`, body in `base05`. On a critical, all three are `base07`.
+- App name in `base04`, summary in `base07`, body in `base05`. On a critical, all three are `Theme.onCritical` (`base07` in dark mode, `base00` in light mode, `#f8f8f8` in both: light `base07` gave 3.1:1 on `base08`). The app name is at 90 % and the body at 95 % opacity over `base08`, under the summary at full opacity: 4.7, 5.0 and 5.4:1 (M7, Q15). The progress line and the `+N` counter of a critical use `Theme.onCritical` too.
 - Newlines in the body become ` · `. The body advertises and renders a safe markup subset (`<b>`, `<i>`, `<u>`), and other tags are stripped. `services/Markup.js` does this, pure JS with unit tests: `<br>` counts as a newline, entities stay, a stray `<`, `>` or `&` is escaped, `<img>` goes with its attributes (StyledText would load it). App name and summary are plain text on one line.
-- While others wait, a counter `+N` sits at the right end of the span, `base04` (`base07` on critical).
+- While others wait, a counter `+N` sits at the right end of the span, `base04` (`Theme.onCritical` on critical).
 
 ## 5. Notification rules
 
@@ -168,14 +169,14 @@ Changes from the mako behavior:
 
 ## 7. Animation
 
-Durations and easing curves are starting values for tuning. They live in one `Motion.qml` singleton.
+Durations and easing curves live in one `Motion.qml` singleton. M7 tuned them with the owner: every note transition is 1.2 times its starting value (the values below), and the OSD, marquee and pulse kept theirs.
 
 Note:
 
-- **Enter.** The overlay maps showing exactly the bar's idle center: a `base00` box over the bar's clock box, and the overlay's own clock in it. Nothing moves until that first frame is on screen (the window's `frameSwapped`, with a 250 ms fallback), because a layer surface is configured before it draws. The clock compacts from `yyyy-MM-dd HH:mm` to `HH:mm` while sliding to the left edge of the span (240 ms, `Easing.OutCubic`): the full text stays right-aligned in a box that narrows, so the date leaves on the left. The separator fades in with the slide, then the note wipes in from the separator to the right end of the span (320 ms, `Easing.OutCubic`). The span background (`base01`) grows with the wipe. The leading edge is a 2 px `base0D` line with a soft glow (`MultiEffect`, or the shader from M7). It stays at the span's end while the note shows. The text sits at its final position and is revealed by the clip, so it does not move. The `base00` box over the bar's clock stays until the overlay unmaps, so the bar's clock never shows through.
-- **Stay.** A line wider than the space it has holds for 1200 ms, then scrolls left at 60 px/s. It holds for 1000 ms at the end, then fades back to the start in 150 ms, and the cycle repeats. The hold starts when the wipe (or a roll) ends. A 2 px progress line on the top edge of the note region shrinks to zero over the timeout (`base03`, `base07` on critical). It stops while the timer pauses (under an OSD), and a notification without a timeout has none.
-- **Leave.** The note retracts into the separator (240 ms, `Easing.InCubic`). Then the clock slides back to the center and expands to the full format (240 ms, `Easing.OutCubic`). The overlay unmaps once the frame that matches the bar's idle center is on screen. The leave runs after the notification closed, so the view draws from the entry's snapshot. A note that arrives during the leave opens the span again from where it is.
-- **Next in queue.** While the span is open, the old line moves up out of the strip and the new one comes in from below, 200 ms (`Easing.OutQuad`). The background crossfades over the same time when the colors differ. The clock stays compact, and there is no second wipe. A note that replaces the one on display through the synchronous tag changes the text in place, like a `replaces_id` update.
+- **Enter.** The overlay maps showing exactly the bar's idle center: a `base00` box over the bar's clock box, and the overlay's own clock in it. Nothing moves until that first frame is on screen (the window's `frameSwapped`, with a 250 ms fallback), because a layer surface is configured before it draws. The clock compacts from `yyyy-MM-dd HH:mm` to `HH:mm` while sliding to the left edge of the span (288 ms, `Easing.OutCubic`): the full text stays right-aligned in a box that narrows, so the date leaves on the left. The separator fades in with the slide, then the note wipes in from the separator to the right end of the span (384 ms, `Easing.OutCubic`). The span background (`base01`) grows with the wipe. The leading edge is a 2 px `base0D` line with a soft halo: `shaders/wipe.frag`, a horizontal Gaussian (sigma 3 px, peak opacity 0.55) the same over the whole bar height, drawn under the line (M7, chosen over a `MultiEffect` shadow and over a trail behind the moving edge). On a critical, the line and the halo are `Theme.onCritical` (white): a `base0D` halo on `base08` blended to a muddy mauve-gray (M7). It stays at the span's end while the note shows. The text sits at its final position and is revealed by the clip, so it does not move. The `base00` box over the bar's clock stays until the overlay unmaps, so the bar's clock never shows through.
+- **Stay.** A line wider than the space it has holds for 1200 ms, then scrolls left at 60 px/s. It holds for 1000 ms at the end, then fades back to the start in 150 ms, and the cycle repeats. The hold starts when the wipe (or a roll) ends. A 2 px progress line on the top edge of the whole span (compact clock, separator and note region, M7, Q15) shrinks to zero over the timeout (`base03`, `Theme.onCritical` on critical). It stops while the timer pauses (under an OSD), and a notification without a timeout has none.
+- **Leave.** The note retracts into the separator (288 ms, `Easing.InCubic`). Then the clock slides back to the center and expands to the full format (288 ms, `Easing.OutCubic`). The overlay unmaps once the frame that matches the bar's idle center is on screen. The leave runs after the notification closed, so the view draws from the entry's snapshot. A note that arrives during the leave opens the span again from where it is.
+- **Next in queue.** While the span is open, the old line moves up out of the strip and the new one comes in from below, 240 ms (`Easing.OutQuad`). The background crossfades over the same time when the colors differ. The clock stays compact, and there is no second wipe. A note that replaces the one on display through the synchronous tag changes the text in place, like a `replaces_id` update.
 - **Reload survivor.** It comes back with the span already open, without the entry animation.
 
 OSD (full width):
@@ -184,11 +185,11 @@ OSD (full width):
 - **Update** (same synchronous tag): the fill width animates to the new value in 120 ms (`Easing.OutQuad`).
 - **Rapid presses.** A new OSD that finds the strip shown or fading out keeps the same surface: the fill moves to the new value as in an update, and a fading strip fades back in from where it is. The entry runs only when the overlay was idle. An OSD of another app takes the strip the same way, and its fill color changes at once (M3 choice, question Q11).
 - **Leave.** Fade out over 150 ms (linear), back to the bar (or to the open note span). The strip keeps its last label and value while it fades, and the overlay unmaps when the fade ends.
-- The label (the summary, for example `Brightness: 40%`) is centered on the output (M3 choice, Q12). It is drawn twice and split at the fill edge with clipping: `base05` over the empty part, `base00` over the filled part. It stays readable at 0 % and at 100 %, which matters for the muted microphone (value 0). The fill edge snaps to physical pixels, so both copies line up. In light mode, `base00` over the fill has little contrast (question Q10).
+- The label (the summary, for example `Brightness: 40%`) is centered on the output (M3 choice, Q12). It is drawn twice and split at the fill edge with clipping: `base05` over the empty part, `Theme.onFill` over the filled part: `base00`, and `base07` in light mode (M7, Q10). Both are `#181818`. It stays readable at 0 % and at 100 %, which matters for the muted microphone (value 0). The fill edge snaps to physical pixels, so both copies line up. In light mode that gives 11.7:1 on brightness, 7.5:1 on volume and 6.1:1 on microphone.
 
 Critical: the leading-edge glow pulses between 0.4 and 1.0 opacity with a 1600 ms period while shown.
 
-Rich: the card slides up from behind the strip in 220 ms (`Easing.OutCubic`) after the note's wipe, and slides back down before the note leaves (220 ms, `Easing.InCubic`, M5 choice, Q18). It is clipped at the strip's top edge, so it comes out from behind it. Before a roll it slides down first, and the card of a rich line rises once the roll ends. A rich note replaced through the synchronous tag keeps its card up and changes the picture in place. A reload survivor comes back with its card up.
+Rich: the card slides up from behind the strip in 264 ms (`Easing.OutCubic`) after the note's wipe, and slides back down before the note leaves (264 ms, `Easing.InCubic`, M5 choice, Q18). It is clipped at the strip's top edge, so it comes out from behind it. Before a roll it slides down first, and the card of a rich line rises once the roll ends. A rich note replaced through the synchronous tag keeps its card up and changes the picture in place. A reload survivor comes back with its card up.
 
 Cost: no animation runs while idle. The overlay is unmapped, the bar redraws only when its content changes, and the marquee, pulse and blink timers stop when nothing uses them.
 
@@ -196,9 +197,9 @@ Cost: no animation runs while idle. The overlay is unmapped, the bar redraws onl
 
 - Overlay clicks land only on drawn content. Everything else reaches the bar, or the window above the bar for the transparent upper 72 px. The input mask combines the strip's content with the visible part of the rich card.
 - Note clicks follow the rules table: "default action if any" means the action with the identifier `default`, and `invoke action discard` falls back to a dismiss when the sender gave no such action. The rich card takes the same clicks as its note. A middle click dismisses the current notification and the whole queue. A click during the leave animation (after the notification closed) does nothing.
-- Hovering a note (the span or its card) pauses its timer and its marquee. Leaving resumes both. The hover follows pointer motion, so a note that appears under a resting pointer keeps running until the pointer moves (M5 choice, Q21). A view that unmaps under the pointer leaves no hover behind.
+- Hovering a note (the span or its card) pauses its timer and its marquee. Leaving resumes both. A note that opens under a pointer resting on the bar pauses at once (M7, Q21). The overlay gets no pointer enter until the pointer moves, so the view asks the bar, whose `HoverHandler` still holds the pointer, whether it lies inside the drawn span. Once the pointer moves, the bar gets the leave and the overlay the enter. A pointer parked on the center therefore holds every new note. A view that unmaps under the pointer leaves no hover behind.
 - An OSD covers the whole bar for up to 2 s. A click on it dismisses it (left or right button, as in the rules table). A middle click also dismisses the queue, as on a note (M5 choice, Q20). While it fades out, its input mask is empty, so clicks reach the bar (M3 choice).
-- Tray menus open as popups of the bar window. They are the only part of bar that may need keyboard input. Spike S9 showed that they get none while the bar's keyboard focus is `None`: arrow keys and Escape go to the focused window, and the menu only reacts to the pointer. Switching to `WlrKeyboardFocus.OnDemand` once a menu is open does not help, because sway gives the focus on a click and that click has already happened. What works is `OnDemand` while the pointer is on the tray or a menu is open: the opening click then focuses the bar, and the focus returns to the window when the menu closes. `OnDemand` at all times is ruled out, since the bar would keep the keyboard after any click on it. Whether menus get keyboard input at all is question Q2 in `PLAN.md` section 8. Until it is answered, the bar stays at `None`.
+- Tray menus open as popups of the bar window. They are the only part of bar that may need keyboard input. Spike S9 showed that they get none while the bar's keyboard focus is `None`: arrow keys and Escape go to the focused window, and the menu only reacts to the pointer. Switching to `WlrKeyboardFocus.OnDemand` once a menu is open does not help, because sway gives the focus on a click and that click has already happened. What works is `OnDemand` while the pointer is on the tray or a menu is open: the opening click then focuses the bar, and the focus returns to the window when the menu closes. `OnDemand` at all times is ruled out, since the bar would keep the keyboard after any click on it. Whether menus get keyboard input at all is the keyboard half of question Q2 in `PLAN.md` section 8 (M7 answered the look half). Until it is answered, the bar stays at `None` and menus react to the pointer only.
 
 ## 9. Inter-Process Communication (IPC)
 
@@ -238,7 +239,7 @@ Sway bindings (decision D3), installed at cutover from `packaging/sway-bindings.
 - Every color in the views comes from the theme service, and no view contains a raw hex value.
 - Startup mode: the output of `darkman get` (through `Process`). darkman may not be up yet at login, so if that fails, the last mode stored in `state.json` (key `themeMode`) applies, then `dark`. Every applied mode is written back to that key.
 - Transitions: a new darkman hook, `~/.local/share/darkman/bar.sh`, calls `quickshell ipc --any-display -p ~/.local/share/bar call theme set "$1"`. darkman is a systemd user service and may lack `WAYLAND_DISPLAY` when it starts at login, and `quickshell ipc` only sees instances on the caller's display without `--any-display`. The `-p` path already selects the live instance only. The hook exits quietly when bar is not running.
-- A theme change only changes the bound color properties. It never calls `Quickshell.reload()`, which would unmap the bar. During an OSD or a note it maps nothing, runs no entry, and every frame shows one palette, with the bar and the overlay switching in the same frame (matrix case TH). The colors change at once, without a crossfade (M6 choice, Q26).
+- A theme change only changes the bound color properties. It never calls `Quickshell.reload()`, which would unmap the bar. During an OSD or a note it maps nothing and runs no entry (matrix case TH). Every color crossfades over 300 ms (`Motion.themeFade`, `Easing.InOutQuad`, M7, Q26), the bar and the overlay in step, since both bind to the same animated theme colors (the two windows commit separately and can land one frame apart: at most one step of the fade, about 25/255 at its middle). The answer of `darkman get` at startup swaps at once, so a login shows no fade.
 
 ## 11. Outputs
 
@@ -283,7 +284,7 @@ Bar:
 | B2 | a test client with `urgent enable` on a hidden workspace | that workspace button turns `base08` |
 | B3 | `swaymsg mode resize`, then a mode with a name as long as the `present:` cheat sheet | italic label on `base04`, long name shown in full |
 | B4 | click on the clock, hover on the clock | seconds shown and ticking, calendar popup with today highlighted |
-| B5 | `tests/fake-sni.py` registers an item, sets `NeedsAttention`, then exposes a menu | icon appears, blinks, right click opens the menu, a click on an entry reaches the fake item |
+| B5 | `tests/fake-sni.py` registers an item, sets `NeedsAttention`, then exposes a menu with a submenu | icon appears, blinks, right click opens the menu, a click on an entry and one in the submenu reach the fake item, a second right click and a press on the bar close the menu |
 | B6 | `SNI_WAIT_TIMEOUT=10 /usr/libexec/sway-systemd/wait-sni-ready` | logs `Successfully waited for org.kde.StatusNotifierHost` (the script exits 0 on failure too) |
 | B7 | a fullscreen test client, then a volume OSD, a screenshot note and a plain note | bar covered, OSD and screenshot drawn above the client, plain note held |
 
@@ -321,10 +322,10 @@ N5 and N6 save frame series (`tests/frames.py`: shots at 0, 60, 120, 300 and 900
 - `HO`: the handoff of section 2. With the note view held at its first and last frame, both frames and the bar after the unmap are pixel-identical to the idle bar.
 - `NW`: the width rule of section 3. Beside the `present:` stand-in the mode shows in full, beside a longer fictional mode it elides so that the span keeps 600 px, and it comes back in full after the note.
 - `CPU`: the idle cost of section 7. `top -b -n 5 -d 1` on the bar process, saved to `.test/logs/m4/cpu-idle.log`.
-- `HV`: the hover pause of section 8. A frame series with the pointer on a 3 s note from 1 s to 4 s (the progress line stands still, the note closes after 6 s), the marquee standing still under the pointer, the card counting as the note, and no hover left behind after an unmap under the pointer.
+- `HV`: the hover pause of section 8. A frame series with the pointer on a 3 s note from 1 s to 4 s (the progress line stands still, the note closes after 6 s), the marquee standing still under the pointer, the card counting as the note, no hover left behind after an unmap under the pointer, and a note that opens under a resting pointer paused at once (Q21).
 - `CL`: clicks per the rules table. A left click runs the default action, a right click only dismisses, a left click dismisses a critical without actions, a middle click dismisses the note and the whole queue, also from an OSD over a note.
 - `HP`: hotplug (section 11). `create_output` and an unplug while a note shows on HEADLESS-1, then an unplug of the output that shows a critical and an OSD. The bar of HEADLESS-1 keeps its serial, connects and hides and its 1176 px workspace, the new overlay never maps, both notifications move to HEADLESS-1, and the Quickshell log gets no warning.
-- `TH`: `theme set light` during an OSD and during a note (section 10). No map, no entry, no update, the bar kept, and a frame series where each frame shows one palette.
+- `TH`: `theme set light` during an OSD and during a note (section 10). No map, no entry, no update, the bar kept, and frame series where the colors crossfade from dark to light without going back, the bar and the overlay at most one frame of the fade apart (M7, Q26).
 - `END`: nothing is left tracked and the overlay is unmapped. It runs last, right after N16.
 
 N1, N3 and N4 also save frame series of the bar strip (`tests/strip-frames.py`, with the slow-motion factor of the `debug` target), N2 and N15 at normal speed.

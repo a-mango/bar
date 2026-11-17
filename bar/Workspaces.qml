@@ -39,7 +39,9 @@ Row {
                 id: label
                 x: 5 + (Math.max(16, implicitWidth) - implicitWidth) / 2
                 text: button.modelData.name
-                color: button.focusedHere ? Theme.base00 : button.shownHere ? Theme.base07 : Theme.base05
+                // On the urgent base08, Theme.onCritical (M7): waybar's base05
+                // gave 4.0:1 in dark mode and 2.1:1 in light mode.
+                color: button.modelData.urgent ? Theme.onCritical : button.focusedHere ? Theme.base00 : button.shownHere ? Theme.base07 : Theme.base05
                 // waybar's workspaces are GTK buttons, which the GTK theme draws bold.
                 font.bold: true
             }

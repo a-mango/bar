@@ -15,6 +15,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - `make log`: follow the nested Quickshell log
 - `make test`: `node --test tests/*.test.mjs` (unit tests for `services/Rules.js` and `services/Markup.js`)
 - `tests/strip-frames.py <dir> <label> <slow> <ms...> [-- command]`: frame series of the bar strip through grim, from the host. Pair it with `call debug slow <factor>`, and reset the factor to 1 afterwards.
+- `tests/clip.sh <round> [scene...]`: review clips through wf-recorder (lossless, bottom 96 px of HEADLESS-1) into `.test/clips/<round>/`, one per scene plus `all.mp4`. `tests/clip-ab.py OUT.mp4 A.mp4 B.mp4 ...` stacks clips aligned on the first frame with the note edge. Play at native size: `mpv --loop --video-unscaled=yes`.
 - `make shaders`: compile `shaders/*.frag` to `.qsb` with `/usr/lib64/qt6/bin/qsb`
 - `make lint`: `qmllint` on all QML files through `tests/lint.sh` (needs `qt6-qtdeclarative-devel`)
 - `make install`: copy the tree to `~/.local/share/bar` as the live copy (M8 only, after the owner's go-ahead)
@@ -68,7 +69,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - Run everything that talks to the nested session through `tests/nested.sh run`. A plain shell still has the live `WAYLAND_DISPLAY`, `SWAYSOCK` and bus address.
 - `console.log` and `console.debug` are hidden by default. Log with `console.info`.
 - Singletons load on first use. One that must run from startup (`Notifs`, `Sway`) is named in `shell.qml`.
-- `//@ pragma` lines in `shell.qml` take effect at process start, not on a hot reload. `UseQApplication` is required by `QsMenuAnchor`. `NativeTextRendering` (decision D7) gives hinted grayscale text and the pixel-exact handoff.
+- `//@ pragma` lines in `shell.qml` take effect at process start, not on a hot reload. `UseQApplication` was required by `QsMenuAnchor`, which M7 replaced with `bar/TrayMenu.qml` (nothing needs it now). `NativeTextRendering` (decision D7) gives hinted grayscale text and the pixel-exact handoff.
 - In `PersistentProperties`, a `property var` holding a JS array or object is `undefined` after a reload. Use `property list<var>`.
 - A headless sway seat has no pointer. `seat seat0 cursor` commands only reach clients while `tests/vpointer.py` runs (the harness starts it). Keyboard tests hold a keyboard with `wtype -s 3600000` in the background.
 - sway gives an `OnDemand` layer surface the keyboard only on a click. Setting `OnDemand` after the click that opens a tray menu is too late.
@@ -86,11 +87,14 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - sway does not slide popups of layer surfaces back onto the output. Anchor popups near an edge so that they grow away from it.
 - The nested session has `tests/bin` first on `PATH`: `darkman get` is the stub, which answers from `.test/darkman-mode` or fails.
 - grim reads back the whole 3840x2400 output for every shot, even with `-g`. That blocks the compositor (and Quickshell) for about 80 ms. Use `tests/frames.py` for anything timed.
+- A changed `.qsb` needs a Quickshell restart (`make nested-stop`, `make nested`): after a hot reload, Qt kept the old shader for the same URL, and with a changed uniform block the halo vanished. `*.qsb` is gitignored, so run `make shaders` after a checkout.
+- wf-recorder without `-D` exits only after the next damaged frame, up to a minute on an idle bar. Clips also need lossless RGB (`libx264rgb`, crf 0): 4:2:0 turns the 2 px edge gray, and yuv444p shifts colors through the range conversion.
+- A `PopupWindow` with `grabFocus` ignores clicks on bar's own surfaces (same client): the bar closes tray menus itself. Watch presses over the bar with a `PointHandler`: a `TapHandler` on an item on top swallowed them.
 - After an edit to a singleton file alone (seen with `services/Motion.qml`), the hot reload kept the old values. Touch `shell.qml` as well.
 - A newly mapped window shows its first frame about 30 ms later, and Qt's first tick after `start()` only registers an animation. Entry animations start on the window's first `frameSwapped` (`OsdView`, `NoteView`).
 - `PanelWindow` does not expose `_backingWindow` to QML. Use an item's attached `Window.window` for `frameSwapped`.
 - `mask: Region { item: null }` is an empty input region: every click goes through to the bar.
-- The pointer on a note pauses its timer, and `tests/nested.sh click` leaves the pointer where it clicked. Park it (`scene hover 960 600`, `park` in `tests/matrix.sh`) before a timing check. Hover follows pointer motion: a note that maps under a resting pointer is not hovered.
+- The pointer on a note pauses its timer, and `tests/nested.sh click` leaves the pointer where it clicked. Park it (`scene hover 960 600`, `park` in `tests/matrix.sh`) before a timing check. Since M7 (Q21), a note that opens under a pointer resting on the bar is hovered at once: the view reads the bar's `HoverHandler`, so park the pointer off the bar, not just still.
 - In `swaymsg -t get_tree`, every workspace node reports `fullscreen_mode: 1`. Count only `con` and `floating_con` nodes.
 - An `Image` without `asynchronous: true` decodes on the GUI thread: a screenshot PNG blocks for 150 to 350 ms.
 - A `tests/client` window killed through sway leaves its `quickshell` process running. Kill it by PID.

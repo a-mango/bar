@@ -211,11 +211,34 @@ case_B5() {
     box=$(px "$menu" bbox "$before")
     echo "  menu box (logical): $box"
     mark=$(wc -l < "$log")
-    # The second entry, "Sync demo data", sits 35 px below the menu's top.
+    # The menu drawn in QML (TrayMenu, M7): 1 px frame and 3 px padding,
+    # rows of 24 px, the separator 9 px. "Sync demo data" is the second
+    # row, its middle 40 px below the menu's top.
     read -r x0 y0 x1 _ <<< "$box"
-    click "$(python3 -c "print(int(($x0 + $x1) / 2))")" "$(python3 -c "print(int($y0 + 35))")"; sleep 0.5
+    check "menu height: seven rows and a separator (185 px)" "$(python3 -c "print(int(${box##* } - $y0))")" 185 || f=1
+    click "$(python3 -c "print(int(($x0 + $x1) / 2))")" "$(python3 -c "print(int($y0 + 40))")"; sleep 0.5
     check "click on an entry reaches the item" "$(tail -n +$((mark + 1)) "$log" | grep -o "\[$pid\] Event 2 clicked .*")" "[$pid] Event 2 clicked 'Sync demo data'" || f=1
     check "menu closed after the click" "$(state "d['tray'][$index]['menuOpen']")" False || f=1
+
+    echo "  submenu: 'Demo layouts', then 'Layout north'"
+    click "$x" $MID button3; sleep 0.8
+    mark=$(wc -l < "$log")
+    # "Demo layouts" is the eighth row, 157 to 181 px below the top. Its
+    # submenu (two rows, 56 px) opens left of it, bottom on the row's bottom.
+    click "$(python3 -c "print(int(($x0 + $x1) / 2))")" "$(python3 -c "print(int($y0 + 169))")"; sleep 0.6
+    check "submenu opened" "$(tail -n +$((mark + 1)) "$log" | grep -c "\[$pid\] Event 8 opened ")" 1 || f=1
+    click "$(python3 -c "print(int($x0 - 30))")" "$(python3 -c "print(int($y0 + 181 - 56 + 16))")"; sleep 0.6
+    check "click in the submenu reaches the item" "$(tail -n +$((mark + 1)) "$log" | grep -o "\[$pid\] Event 9 clicked .*")" "[$pid] Event 9 clicked 'Layout north'" || f=1
+    check "both menus closed" "$(state "d['tray'][$index]['menuOpen']")" False || f=1
+
+    echo "  the grab ignores bar's own surfaces: the bar closes the menu"
+    click "$x" $MID button3; sleep 0.6
+    click "$x" $MID button3; sleep 0.6
+    check "a second right click closes it" "$(state "d['tray'][$index]['menuOpen']")" False || f=1
+    click "$x" $MID button3; sleep 0.6
+    click 600 $MID; sleep 0.6
+    check "a press on the bar outside the tray closes it" "$(state "d['tray'][$index]['menuOpen']")" False || f=1
+    scene hover 960 600
     return $f
 }
 
@@ -1167,11 +1190,14 @@ case_HP() {
 
 # theme_frames <dir> <x> <y> <name> <x> <y> <name>...: for each shot of
 # the last frame series, which palette each probe matches ("dark", "light"
-# or the color itself). Prints one line per shot.
+# or the color itself; THEME_RAW=1 prints the color always). Prints one
+# line per shot.
 theme_frames() {
     python3 - "$FJ" "$REPO" "$@" <<'PY'
 import json, re, subprocess, sys
+import os
 fj, repo, probes = sys.argv[1], sys.argv[2], sys.argv[3:]
+raw = os.environ.get("THEME_RAW") == "1"
 pal = {}
 for mode in ("dark", "light"):
     css = open(f"{repo}/themes/base16-default-{mode}.css").read()
@@ -1183,14 +1209,64 @@ for s in d["shots"]:
         x, y, role = probes[i:i + 3]
         c = subprocess.run([f"{repo}/tests/pixel.py", s["file"], "color", x, y], capture_output=True, text=True).stdout.strip()
         names = [m for m in ("dark", "light") if pal[m][role] == c]
-        out.append("both" if len(names) == 2 else names[0] if names else c)
+        out.append(c if raw else "both" if len(names) == 2 else names[0] if names else c)
     print("%d %.1f %s" % (s["at"], s["frame_ms"], " ".join(out)))
+PY
+}
+
+# fade_check <role> <probe>...: reads `theme_frames` rows (THEME_RAW=1)
+# on stdin and checks the crossfade (Q26) of each probe of the given role:
+# dark frames, then in-between colors, then light frames, never back. With
+# two probes, also the largest channel difference between them per frame
+# (the bar and the overlay in step). Prints "ok <summary>" or "bad <why>".
+fade_check() {
+    # The heredoc is python's stdin, so the rows go through the environment.
+    FADE_ROWS=$(cat) python3 - "$REPO" "$@" <<'PY'
+import os, re, sys
+repo, role, n = sys.argv[1], sys.argv[2], len(sys.argv) - 3
+pal = {}
+for mode in ("dark", "light"):
+    css = open(f"{repo}/themes/base16-default-{mode}.css").read()
+    pal[mode] = dict(re.findall(r"@define-color (base0[0-9A-F]) (#[0-9a-f]{6});", css))[role]
+rows = [l.split() for l in os.environ["FADE_ROWS"].splitlines() if l.strip()]
+out, bad = [], []
+for k in range(n):
+    seq = ["dark" if r[2 + k] == pal["dark"] else "light" if r[2 + k] == pal["light"] else "mid" for r in rows]
+    order = {"dark": 0, "mid": 1, "light": 2}
+    if any(order[b] < order[a] for a, b in zip(seq, seq[1:])):
+        bad.append(f"probe {k + 1} goes back: {' '.join(seq)}")
+    if seq[-1] != "light":
+        bad.append(f"probe {k + 1} not light at the end")
+    mids = sorted({float(r[1]) for r, q in zip(rows, seq) if q == "mid"})
+    lights = [float(r[1]) for r, q in zip(rows, seq) if q == "light"]
+    darks = [float(r[1]) for r, q in zip(rows, seq) if q == "dark"]
+    # Distinct frames. The capture misses frames while the `quickshell ipc`
+    # client starts (gaps up to about 120 ms), so this only shows that a
+    # fade ran: a wf-recorder clip shows a new value every 16.4 ms.
+    if len(mids) < 2:
+        bad.append(f"probe {k + 1}: {len(mids)} in-between frames")
+    else:
+        span = lights[0] - darks[-1] if darks and lights else 0
+        if not 200 <= span <= 600:
+            bad.append(f"probe {k + 1}: fade over {span:.0f} ms")
+        out.append(f"probe {k + 1}: {len(mids)} in-between frames, last dark at {darks[-1] if darks else 0:.0f} ms, first light at {lights[0] if lights else 0:.0f} ms")
+if n == 2:
+    hexes = lambda c: [int(c[i:i + 2], 16) for i in (1, 3, 5)]
+    diff = max(max(abs(a - b) for a, b in zip(hexes(r[2]), hexes(r[3]))) for r in rows)
+    # At most one frame apart: one 16.7 ms frame of the 300 ms InOutQuad
+    # fade from #181818 to #f8f8f8 is up to 25 at its middle. The two
+    # windows commit separately, and one run saw them a frame apart (19).
+    if diff > 26:
+        bad.append(f"probes apart by {diff} in one frame")
+    out.append(f"largest difference between the probes in one frame: {diff}")
+print(("bad " + "; ".join(bad)) if bad else ("ok " + "; ".join(out)))
 PY
 }
 
 # TH: `theme set light` while an OSD and while a note shows. Colors change
 # in place: no map, no entry, the bar is neither replaced nor unmapped and
-# keeps its exclusive zone. The frame series show each frame's palette.
+# keeps its exclusive zone. The frame series show the 300 ms crossfade
+# (M7, Q26), with the bar and the overlay in step.
 case_TH() {
     local f=0 life h mark c0 c1 m0 s rows bad mixed sched
     prepare
@@ -1198,7 +1274,8 @@ case_TH() {
     life=$(bar_life)
     h=$(ws_height)
     mark=$(log_mark)
-    sched=("0 shot" "17 shot" "33 shot" "50 shot" "67 shot" "83 shot" "100 shot" "150 shot" "200 shot" "300 shot")
+    sched=()
+    for c0 in $(seq 0 33 726); do sched+=("$c0 shot"); done
 
     echo "  during an OSD"
     # 15 s, so that the OSD is still up for every check below.
@@ -1213,45 +1290,51 @@ case_TH() {
     s=$(shot TH osd-light)
     check "OSD fill (base0D in both palettes)" "$(px "$s" run 2 $TOP)" "0 1152" || f=1
     check "OSD empty part in light base00" "$(px "$s" color 1900 $TOP)" "$(palette base00 light)" || f=1
-    more "OSD label over the fill in light base00" "$(px "$s" count "$(palette base00 light)" 900 1177 1020 1199)" 50 || f=1
-    check "no dark base00 left in the label" "$(px "$s" count "$(palette base00)" 900 1177 1020 1199)" 0 || f=1
+    more "OSD label over the fill in light base07 (Theme.onFill, Q10)" "$(px "$s" count "$(palette base07 light)" 900 1177 1020 1199)" 50 || f=1
+    check "no light base00 in the label over the fill" "$(px "$s" count "$(palette base00 light)" 900 1177 1020 1199)" 0 || f=1
     echo "  frames (requested -> frame time, ms): $(frame_times); $FD/sheet.png"
     # Per frame: the fill (base0D, the same in both palettes) and the empty part.
-    rows=$(theme_frames 2 $CTOP base0D 1900 $CTOP base00)
+    rows=$(THEME_RAW=1 theme_frames 2 $CTOP base0D 1900 $CTOP base00)
     echo "  per frame (ms, frame ms, fill, empty part):"
     sed 's/^/          /' <<< "$rows"
-    bad=$(awk '$3 != "both" || ($4 != "dark" && $4 != "light")' <<< "$rows")
-    check "every frame shows the OSD in one palette" "${bad:-none}" none || f=1
-    check "last frame light" "$(tail -n 1 <<< "$rows" | awk '{print $4}')" light || f=1
+    check "the fill stays base0D in every frame" "$(awk '{print $3}' <<< "$rows" | sort -u)" "$(palette base0D)" || f=1
+    c0=$(awk '{print $1, $2, $4}' <<< "$rows" | fade_check base00 1)
+    echo "  info  $c0"
+    check "the empty part crossfades to light (Q26)" "${c0%% *}" ok || f=1
     bar_kept "after theme set light during the OSD" "$life" "$h" || f=1
     ipc notify dismiss
     wait_unmapped || true
 
     echo "  during a note"
     ipc theme set dark
-    sleep 0.3
-    send -t 15000 "Theme check" "fictional note across a theme switch" > /dev/null
+    sleep 0.6 # past the 300 ms crossfade
+    # 30 s: the per-frame analysis below takes seconds, and the note must
+    # still show for the switch back to dark.
+    send -t 30000 "Theme check" "fictional note across a theme switch" > /dev/null
     sleep 1
     m0=$(state "$H1['maps']")
     frames TH/note "10 run quickshell ipc -p $REPO call theme set light" "${sched[@]}"
     check "note still open on the same surface (new maps, phase, c, w)" "$(state "($H1['maps'] - $m0, $H1['note']['phase'], $H1['note']['c'], $H1['note']['w'])")" "(0, 'open', 1, 1)" || f=1
-    echo "  frames (requested -> frame time, ms): $(frame_times); $FD/sheet.png"
-    # Per frame: the bar (workspace 1, base00), the note span (base01) and
-    # the compact clock (base00, both drawn by the overlay).
-    rows=$(theme_frames 13 $CTOP base00 960 75 base01 150 $CTOP base00)
-    echo "  per frame (ms, frame ms, bar, note span, compact clock):"
-    sed 's/^/          /' <<< "$rows"
-    bad=$(awk '($3 != "dark" && $3 != "light") || ($4 != "dark" && $4 != "light") || $4 != $5' <<< "$rows")
-    check "every frame: bar in one palette (no window over its rows), overlay in one palette" "${bad:-none}" none || f=1
-    mixed=$(awk '$3 != $4 { printf "%s ", $1 }' <<< "$rows")
-    echo "  info  frames where the bar and the overlay show different palettes: ${mixed:-none}"
-    check "last frame light" "$(tail -n 1 <<< "$rows" | awk '{print $3, $4}')" "light light" || f=1
+    # The shot and its checks first: the per-frame analysis takes seconds.
     s=$(shot TH note-light)
     check "note span in light base01" "$(px "$s" color 960 1179)" "$(palette base01 light)" || f=1
     check "focused workspace in light base07" "$(px "$s" color 39 $TOP)" "$(palette base07 light)" || f=1
+    echo "  frames (requested -> frame time, ms): $(frame_times); $FD/sheet.png"
+    # Per frame: the bar (workspace 1, base00), the note span (base01) and
+    # the compact clock (base00, both drawn by the overlay; 4 px down, off
+    # the progress line).
+    rows=$(THEME_RAW=1 theme_frames 13 $CTOP base00 960 75 base01 150 76.5 base00)
+    echo "  per frame (ms, frame ms, bar, note span, compact clock):"
+    sed 's/^/          /' <<< "$rows"
+    c0=$(awk '{print $1, $2, $3, $5}' <<< "$rows" | fade_check base00 1 2)
+    echo "  info  bar and compact clock: $c0"
+    check "bar and overlay crossfade in step (Q26)" "${c0%% *}" ok || f=1
+    c0=$(awk '{print $1, $2, $4}' <<< "$rows" | fade_check base01 1)
+    echo "  info  note span: $c0"
+    check "the note span crossfades to light" "${c0%% *}" ok || f=1
     bar_kept "after theme set light during the note" "$life" "$h" || f=1
     ipc theme set dark
-    sleep 0.3
+    sleep 0.6 # past the 300 ms crossfade
     s=$(shot TH note-dark-again)
     check "back in dark: note span base01" "$(px "$s" color 960 1179)" "$(palette base01)" || f=1
     bar_kept "after theme set dark" "$life" "$h" || f=1
@@ -1538,11 +1621,11 @@ case_N7() {
 
     echo "  frame series: the card rises after the wipe, falls before the leave"
     frames N7/card "0 run notify-send -a screenshot -i $png -t 10000 'Screenshot saved' 'demo-screenshot.png. Right click to discard'" \
-        "0 shot" "560 shot" "700 shot" "900 shot" "1500 run quickshell ipc -p $REPO call notify dismiss" \
+        "0 shot" "640 shot" "840 shot" "1100 shot" "1500 run quickshell ipc -p $REPO call notify dismiss" \
         "1500 shot" "1700 shot" "1900 shot" "2100 shot" "2400 shot" "2800 shot"
     echo "  frames: $FD/sheet.png ($(frame_times))"
-    check "560 ms: wipe still running, no card" "$(px "$FD/t0560.png" color $((x + 50)) 36)" "$CLIENT" || f=1
-    check "900 ms: card up" "$(px "$FD/t0900.png" color $((x + 1)) 1)" "$(palette base01)" || f=1
+    check "640 ms: wipe still running, no card" "$(px "$FD/t0640.png" color $((x + 50)) 36)" "$CLIENT" || f=1
+    check "1100 ms: card up" "$(px "$FD/t1100.png" color $((x + 1)) 1)" "$(palette base01)" || f=1
     check "1500 ms: card still up" "$(px "$FD/t1500.png" color $((x + 1)) 1)" "$(palette base01)" || f=1
     check "1900 ms: card down" "$(px "$FD/t1900.png" color $((x + 50)) 10)" "$CLIENT" || f=1
     check "1900 ms: the note still open while the card is down" "$(px "$FD/t1900.png" color 1300 84)" "$(palette base01)" || f=1
@@ -1675,6 +1758,20 @@ case_HV() {
     send -t 30000 "Hover check" "the next one runs" > /dev/null
     sleep 1
     check "next note: timer running" "$(notif "(d['note']['running'], d['hovered'])")" "(True, False)" || f=1
+    reset_notifs
+
+    # Q21 (M7): the overlay gets no pointer enter until the pointer moves,
+    # so the view asks the bar, which still holds the pointer.
+    echo "  a note that opens under a resting pointer pauses at once"
+    scene hover 1000 $MID
+    sleep 0.3
+    send -t 3000 "Hover check" "opens under the resting pointer" > /dev/null
+    sleep 1
+    check "resting pointer: paused" "$(notif "(d['note']['running'], d['hovered'])")" "(False, True)" || f=1
+    check "reported by the bar, not the overlay" "$(view "v['resting']")" True || f=1
+    park
+    sleep 0.3
+    check "pointer moved away: running" "$(notif "(d['note']['running'], d['hovered'])")" "(True, False)" || f=1
     reset_notifs
     return $f
 }

@@ -25,6 +25,11 @@ PanelWindow {
     // end of the left section and the start of the tray, 8 px gap each.
     readonly property real leftEnd: mode.visible ? mode.x + mode.width : workspaces.width
     readonly property real trayStart: tray.x
+    // Where the pointer last moved on the bar (Q21). A note that opens
+    // under a resting pointer pauses at once: the overlay gets no pointer
+    // enter until the pointer moves, but the bar still holds it then.
+    readonly property bool pointerOn: pointer.hovered
+    readonly property real pointerX: pointer.point.position.x
 
     // For tests (`debug state`): the serial number given at creation (in
     // shell.qml), how often a backing window was connected, and how often
@@ -55,6 +60,27 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Bottom
     WlrLayershell.namespace: "bar"
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+    HoverHandler {
+        id: pointer
+    }
+
+    // A press on the bar outside the tray closes tray menus: their grab
+    // ignores bar's own surfaces (M7). The handler takes a passive grab
+    // only, so the press still reaches the workspace buttons and the clock (a
+    // TapHandler here swallowed them).
+    Item {
+        anchors.fill: parent
+        z: 1
+
+        PointHandler {
+            acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+            onActiveChanged: {
+                if (active && tray.menuOpen && (point.position.x < tray.x || point.position.x >= tray.x + tray.width))
+                    tray.closeMenus();
+            }
+        }
+    }
 
     Workspaces {
         id: workspaces

@@ -5,7 +5,8 @@ import qs.bar
 // The OSD strip (docs/SPEC.md sections 4 and 7): the full width of the
 // output, 24 px, a fill from the left edge to the value in the rule's color,
 // and the summary drawn twice, split at the fill edge: base05 over the empty
-// part, base00 over the fill. It stays readable at 0 % and at 100 %.
+// part, Theme.onFill over the fill (base00, base07 in light mode, Q10).
+// It stays readable at 0 % and at 100 %.
 //
 // The view follows Notifs.osd while that shows on its output (M6), but
 // keeps what it draws (label, value, color
@@ -184,7 +185,7 @@ Item {
         property: "level"
     }
 
-    // Filled part: the fill color with the base00 copy of the label.
+    // Filled part: the fill color with the Theme.onFill copy of the label.
     Rectangle {
         width: root.fillWidth
         height: parent.height
@@ -195,7 +196,7 @@ Item {
             id: filledLabel
             x: root.labelX
             text: root.label
-            color: Theme.base00
+            color: Theme.onFill
         }
     }
 

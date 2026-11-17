@@ -35,13 +35,32 @@ def log(*parts):
     LOG.write(line + "\n")
 
 
-# id -> properties. Id 0 is the root.
+# id -> properties. Id 0 is the root. Ids 1 to 4 keep their meaning for
+# matrix case B5. M7 added a checkbox, a radio item, a disabled item and a
+# submenu (8) with two children, for the menu drawn in QML.
 MENU = {
     1: {"label": Variant("s", "Open demo window")},
     2: {"label": Variant("s", "Sync demo data")},
     3: {"type": Variant("s", "separator")},
     4: {"label": Variant("s", "Quit demo applet")},
+    5: {"label": Variant("s", "Show demo badge"), "toggle-type": Variant("s", "checkmark"), "toggle-state": Variant("i", 1)},
+    6: {"label": Variant("s", "Demo channel: stable"), "toggle-type": Variant("s", "radio"), "toggle-state": Variant("i", 1)},
+    7: {"label": Variant("s", "Demo update (none)"), "enabled": Variant("b", False)},
+    8: {"label": Variant("s", "Demo layouts"), "children-display": Variant("s", "submenu")},
+    9: {"label": Variant("s", "Layout north")},
+    10: {"label": Variant("s", "Layout south")},
 }
+# parent id -> child ids, in order.
+CHILDREN = {0: [1, 2, 3, 4, 5, 6, 7, 8], 8: [9, 10]}
+
+
+def layout(item, depth):
+    """One (ia{sv}av) node with its children down to `depth` (-1: all)."""
+    props = dict(MENU.get(item, {}))
+    if item == 0:
+        props["children-display"] = Variant("s", "submenu")
+    kids = [] if depth == 0 else [Variant("(ia{sv}av)", layout(child, depth - 1)) for child in CHILDREN.get(item, [])]
+    return [item, props, kids]
 
 
 def icon_pixmap():
@@ -172,10 +191,7 @@ class Menu(ServiceInterface):
     @method()
     def GetLayout(self, parent: "i", depth: "i", names: "as") -> "u(ia{sv}av)":
         log("GetLayout", parent, depth)
-        if parent == 0:
-            children = [Variant("(ia{sv}av)", [item, props, []]) for item, props in MENU.items()]
-            return [1, [0, {"children-display": Variant("s", "submenu")}, children]]
-        return [1, [parent, MENU.get(parent, {}), []]]
+        return [1, layout(parent, depth)]
 
     @method()
     def GetGroupProperties(self, ids: "ai", names: "as") -> "a(ia{sv})":

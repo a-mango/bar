@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Effects
 import Quickshell
 import Quickshell.Widgets
 import qs.services
@@ -46,7 +45,10 @@ Item {
     property bool hold: false
     // The pointer is on the span or the card. Never while idle, so that a
     // stale hover cannot hold a note on display.
-    readonly property bool hovered: active && (noteMouse.containsMouse || card.hovered)
+    readonly property bool hovered: active && (noteMouse.containsMouse || card.hovered || resting)
+    // The pointer rests on the bar where the span is drawn (Q21). Once it
+    // moves, the bar gets the leave and noteMouse the enter.
+    readonly property bool resting: active && bar !== null && bar.pointerOn && bar.pointerX >= hit.x && bar.pointerX < hit.x + hit.width
     // Pauses the marquee.
     readonly property bool paused: hovered
     // Every click on the drawn content (the overlay counts them for tests).
@@ -315,9 +317,18 @@ Item {
 
     // ---- lines ----
 
+    // A local path as a file URL, each segment percent-encoded.
+    function fileUrl(path: string): string {
+        return "file://" + path.split("/").map(encodeURIComponent).join("/");
+    }
+
+    // `notify-send -i <file>` arrives as image://icon/<path>. Quickshell's
+    // icon provider answers a missing file with a checkerboard and status
+    // Ready, so the file is loaded directly: a missing one gives
+    // Image.Error and the icon takes no room (SPEC section 4).
     function iconOf(d: var): string {
         if (d.image)
-            return d.image;
+            return d.image.startsWith("image://icon//") ? fileUrl(d.image.slice("image://icon/".length)) : d.image;
         const icon = d.icon || "";
         if (icon.startsWith("file://"))
             return icon;
@@ -332,15 +343,14 @@ Item {
     // other source rich mode accepts (Rules.hasImage).
     function pictureOf(d: var): string {
         const image = d.image || "";
-        const file = path => "file://" + path.split("/").map(encodeURIComponent).join("/");
         if (image.startsWith("image://icon//"))
-            return file(image.slice("image://icon/".length));
+            return fileUrl(image.slice("image://icon/".length));
         if (image)
             return image;
         const icon = d.icon || "";
         if (icon.startsWith("file://"))
             return icon;
-        return icon.startsWith("/") ? file(icon) : "";
+        return icon.startsWith("/") ? fileUrl(icon) : "";
     }
 
     function snapOf(e: var): var {
@@ -579,11 +589,12 @@ Item {
         precision: root.seconds ? SystemClock.Seconds : SystemClock.Minutes
     }
 
-    // Measures the compact clock text.
+    // Measures the compact clock text: "HH:mm", also when the bar shows
+    // seconds (Q15, M7).
     BarText {
         id: compactProbe
         visible: false
-        text: root.seconds ? "HH:mm:ss" : "HH:mm"
+        text: "HH:mm"
     }
 
     // Hides the bar's own clock box while the overlay moves its copy.
@@ -611,10 +622,19 @@ Item {
             color: Theme.base00
         }
 
-        BarText {
-            x: clockBox.width - 7 - implicitWidth
-            text: Qt.formatDateTime(clock.date, root.seconds ? "HH:mm:ss" : "yyyy-MM-dd HH:mm")
-            color: Theme.base07
+        // The full text stays right-aligned, so the date leaves on the
+        // left. With seconds the text is left-aligned instead and this clip
+        // ends at the right padding, so the seconds leave on the right.
+        Item {
+            width: Math.max(0, clockBox.width - 7)
+            height: Theme.barHeight
+            clip: true
+
+            BarText {
+                x: root.seconds ? 7 : clockBox.width - 7 - implicitWidth
+                text: Qt.formatDateTime(clock.date, root.seconds ? "HH:mm:ss" : "yyyy-MM-dd HH:mm")
+                color: Theme.base07
+            }
         }
     }
 
@@ -652,14 +672,6 @@ Item {
             opacity: 0
         }
 
-        // Progress: 2 px on the top edge, shrinking to zero over the timeout.
-        Rectangle {
-            visible: root.timed
-            width: root.regionW * root.progress
-            height: 2
-            color: root.critical ? Theme.base07 : Theme.base03
-        }
-
         Item {
             id: viewport
             x: 7
@@ -687,12 +699,32 @@ Item {
             visible: Notifs.queued > 0
             x: root.regionW - 7 - implicitWidth
             text: "+" + Notifs.queued
-            color: root.critical ? Theme.base07 : Theme.base04
+            color: root.critical ? Theme.onCritical : Theme.base04
         }
     }
 
-    // The leading edge: a 2 px line with a soft glow, kept inside the bar's
-    // height and short of the tray.
+    // Progress: 2 px on the top edge of the whole span (compact clock,
+    // separator and note region, Q15 in M7), shrinking to zero over the
+    // timeout. Clipped to what the wipe has drawn.
+    Item {
+        visible: region.visible && root.timed
+        x: root.spanX
+        width: Math.max(0, region.x + region.width - root.spanX)
+        height: 2
+        clip: true
+
+        Rectangle {
+            width: (root.spanEnd - root.spanX) * root.progress
+            height: 2
+            color: root.critical ? Theme.onCritical : Theme.base03
+        }
+    }
+
+    // The leading edge: a 2 px base0D line (Theme.onCritical on a
+    // critical) with a soft halo, kept inside
+    // the bar's height and short of the tray. The halo comes from
+    // shaders/wipe.frag (M7, chosen over a MultiEffect shadow), the line is
+    // a Rectangle on top so that it snaps to pixels like the rest.
     Item {
         visible: region.visible
         x: root.spanX
@@ -700,24 +732,24 @@ Item {
         height: Theme.barHeight
         clip: true
 
+        ShaderEffect {
+            anchors.fill: parent
+            fragmentShader: Qt.resolvedUrl("../shaders/wipe.frag.qsb")
+            property color color: core.color
+            property size size: Qt.size(width, height)
+            property real center: core.x + 1
+            property real strength: root.glow * Motion.edgeHalo
+            property real radius: Motion.edgeRadius
+        }
+
         Rectangle {
-            id: edge
+            id: core
             x: region.x + region.width - 2 - root.spanX
             width: 2
             height: Theme.barHeight
-            color: Theme.base0D
-            visible: false
-        }
-
-        MultiEffect {
-            source: edge
-            anchors.fill: edge
-            autoPaddingEnabled: true
-            shadowEnabled: true
-            shadowColor: Theme.base0D
-            shadowBlur: 1.0
-            blurMax: 12
-            shadowOpacity: root.glow
+            // White on a critical (M7): base0D's halo on base08 blended to
+            // a muddy mauve-gray.
+            color: root.critical ? Theme.onCritical : Theme.base0D
         }
     }
 
@@ -766,6 +798,7 @@ Item {
         return {
             phase: phase,
             hold: hold,
+            resting: resting,
             frameVia: frameVia,
             c: c,
             w: w,
@@ -867,18 +900,22 @@ Item {
             BarText {
                 visible: text !== ""
                 text: line.snap ? line.snap.app : ""
-                color: line.snap && line.snap.critical ? Theme.base07 : Theme.base04
+                color: line.snap && line.snap.critical ? Theme.onCritical : Theme.base04
+                // On a critical, the hierarchy of a note through opacity
+                // towards base08 (Q15, M7), kept at 4.5:1 or more.
+                opacity: line.snap && line.snap.critical ? Theme.criticalAppOpacity : 1
             }
             BarText {
                 visible: text !== ""
                 text: line.snap ? line.snap.summary : ""
-                color: Theme.base07
+                color: line.snap && line.snap.critical ? Theme.onCritical : Theme.base07
             }
             BarText {
                 visible: text !== ""
                 textFormat: Text.StyledText
                 text: line.snap ? line.snap.body : ""
-                color: line.snap && line.snap.critical ? Theme.base07 : Theme.base05
+                color: line.snap && line.snap.critical ? Theme.onCritical : Theme.base05
+                opacity: line.snap && line.snap.critical ? Theme.criticalBodyOpacity : 1
             }
         }
 

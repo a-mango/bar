@@ -22,29 +22,67 @@ Singleton {
     readonly property int barHeight: 24
     // The rich card above the note span (SPEC section 4, decision D1).
     readonly property int cardHeight: 72
+    // A critical's app name and body: Theme.onCritical at these opacities
+    // over base08, under the summary at full opacity (Q15, M7): 4.7, 5.0
+    // and 5.4:1.
+    readonly property real criticalAppOpacity: 0.9
+    readonly property real criticalBodyOpacity: 0.95
 
     readonly property var palettes: ({
             dark: parse(darkFile.text()),
             light: parse(lightFile.text())
         })
     readonly property var palette: palettes[mode] ?? palettes.dark
+    // A mode change crossfades every color (Motion.themeFade, Q26). Not at
+    // startup: the answer of `darkman get` after the stored mode swaps at
+    // once, so a login never shows a fade.
+    property bool started: false
 
-    readonly property color base00: palette.base00
-    readonly property color base01: palette.base01
-    readonly property color base02: palette.base02
-    readonly property color base03: palette.base03
-    readonly property color base04: palette.base04
-    readonly property color base05: palette.base05
-    readonly property color base06: palette.base06
-    readonly property color base07: palette.base07
-    readonly property color base08: palette.base08
-    readonly property color base09: palette.base09
-    readonly property color base0A: palette.base0A
-    readonly property color base0B: palette.base0B
-    readonly property color base0C: palette.base0C
-    readonly property color base0D: palette.base0D
-    readonly property color base0E: palette.base0E
-    readonly property color base0F: palette.base0F
+    property color base00: palette.base00
+    Behavior on base00 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base01: palette.base01
+    Behavior on base01 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base02: palette.base02
+    Behavior on base02 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base03: palette.base03
+    Behavior on base03 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base04: palette.base04
+    Behavior on base04 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base05: palette.base05
+    Behavior on base05 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base06: palette.base06
+    Behavior on base06 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base07: palette.base07
+    Behavior on base07 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base08: palette.base08
+    Behavior on base08 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base09: palette.base09
+    Behavior on base09 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base0A: palette.base0A
+    Behavior on base0A { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base0B: palette.base0B
+    Behavior on base0B { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base0C: palette.base0C
+    Behavior on base0C { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base0D: palette.base0D
+    Behavior on base0D { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base0E: palette.base0E
+    Behavior on base0E { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    property color base0F: palette.base0F
+    Behavior on base0F { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+
+    // Text over an OSD fill (Q10): base00 in dark mode, base07 in light
+    // mode, where base00 has 1.4:1 on the brightness fill. Both are
+    // #181818. Its own property, so that it fades with the others instead
+    // of jumping when the mode changes.
+    property color onFill: mode === "light" ? palette.base07 : palette.base00
+    Behavior on onFill { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+
+    // Text and lines on a critical's base08 (M7): base07 in dark mode,
+    // base00 in light mode, #f8f8f8 in both, 5.4:1. Light base07 (#181818)
+    // gave 3.1:1.
+    property color onCritical: mode === "light" ? palette.base00 : palette.base07
+    Behavior on onCritical { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
 
     // Reads the 16 `@define-color baseXX #rrggbb;` lines of a base16 CSS file.
     function parse(css: string): var {
@@ -92,6 +130,7 @@ Singleton {
                 root.setMode(answer);
             else
                 console.info("theme: darkman get failed (exit " + code + "), keeping", root.mode);
+            root.started = true;
         }
     }
 
