@@ -15,6 +15,9 @@ import "Rules.js" as Rules
 // deadline: the visible entries' timeouts, the 30 s queue limit and the
 // 5 s DND expiry.
 //
+// M5 adds the clicks (click()), the hover pause (hover()) and the hold of
+// notes while the target output shows a fullscreen window (showNext()).
+//
 // An entry is a plain object:
 //   n          the Notification, null once closed or for a restored history entry
 //   data       snapshot {id, app, summary, body, urgency, value, image, icon, time},
@@ -48,6 +51,22 @@ Singleton {
     // progress line (the entries are plain objects without signals).
     property int timing: 0
     property int received: 0
+
+    // Decision D5: notes whose rule does not show over fullscreen wait in
+    // the queue while the target output shows a fullscreen window. The
+    // target is the focused output (SPEC section 11). The first waiting
+    // note that may show takes the span once the fullscreen window leaves.
+    readonly property bool fullscreen: Sway.focusedFullscreen
+    onFullscreenChanged: {
+        if (!fullscreen && !current)
+            showNext();
+        reschedule();
+    }
+
+    // The note views with the pointer on the note (one key per output).
+    // Hovering pauses the note's timer, leaving resumes it (SPEC section 8).
+    property var hovering: []
+    readonly property bool hovered: hovering.length > 0
 
     // ---- arrival -------------------------------------------------------
 
@@ -212,16 +231,28 @@ Singleton {
     function show(e: var): void {
         e.waitUntil = null;
         current = e;
-        if (!osd)
-            run(e);
+        resume(e);
     }
 
+    // Held while the target output shows a fullscreen window (decision D5).
+    function held(e: var): bool {
+        return fullscreen && !e.cls.overFullscreen;
+    }
+
+    // The first waiting entry that may show. Held notes keep their place
+    // (and their queue limit), so a screenshot can pass them.
     function showNext(): void {
-        if (queue.length === 0)
+        const next = queue.find(e => !held(e));
+        if (!next)
             return;
-        const next = queue[0];
-        queue = queue.slice(1);
+        queue = queue.filter(q => q !== next);
         show(next);
+    }
+
+    // The note's timer runs unless an OSD covers it or the pointer is on it.
+    function resume(e: var): void {
+        if (e && !osd && !hovered)
+            run(e);
     }
 
     function run(e: var): void {
@@ -331,8 +362,7 @@ Singleton {
             queue = queue.filter(q => q !== e);
         if (osd === e) {
             osd = null;
-            if (current)
-                run(current);
+            resume(current);
         }
         if (current === e) {
             current = null;
@@ -457,6 +487,46 @@ Singleton {
         return false;
     }
 
+    // A click on a notification the views show, per the rules table (SPEC
+    // sections 5 and 8). `button` is "left", "right" or "middle". The rule
+    // gives "default" (the default action if any, else dismiss), "dismiss"
+    // or "action:<id>" (that action, or dismiss if the sender gave none).
+    // A middle click dismisses it and the whole queue. An entry that has
+    // closed (a click during the leave animation) is left alone.
+    function click(e: var, button: string): void {
+        if (!e || e.closed || (e !== current && e !== osd))
+            return;
+        if (button === "middle") {
+            dismissAll();
+            return;
+        }
+        const what = String((button === "right" ? e.cls.right : e.cls.left) ?? "dismiss");
+        const action = what === "default" ? "default" : what.startsWith("action:") ? what.slice(7) : "";
+        const found = action && e.n ? e.n.actions.find(a => a.identifier === action) : null;
+        console.info("notifs: click", button, "on", e.data.id, "->", found ? "action " + action : "dismiss");
+        if (found)
+            // Emits ActionInvoked, then closes with reason 2 unless the
+            // notification is resident.
+            found.invoke();
+        else
+            close(e, "dismiss");
+    }
+
+    // The pointer entered (on) or left the note of the view `key`.
+    function hover(key: string, on: bool): void {
+        const was = hovered;
+        hovering = on ? hovering.filter(k => k !== key).concat([key]) : hovering.filter(k => k !== key);
+        if (hovered === was)
+            return;
+        if (current) {
+            if (hovered)
+                pause(current);
+            else
+                resume(current);
+        }
+        reschedule();
+    }
+
     // Shows the newest history entry again as a note without actions. It
     // has no D-Bus object, and goes back to history when it closes.
     function restore(): void {
@@ -476,7 +546,9 @@ Singleton {
         }), {
             kind: "note",
             timeout: 5000,
-            history: true
+            history: true,
+            // It answers a key press, like its DND exception (Q8).
+            overFullscreen: true
         }));
         enqueue(e);
         reschedule();
@@ -513,8 +585,12 @@ Singleton {
             note: describe(current),
             osd: describe(osd),
             waiting: queue.map(e => e.data.id),
+            held: queue.filter(e => held(e)).map(e => e.data.id),
+            fullscreen: fullscreen,
+            hovered: hovered,
             hidden: hidden.length,
             history: persist.history.length,
+            newest: persist.history.length > 0 ? persist.history[0].summary : "",
             tracked: server.trackedNotifications.values.length
         });
     }

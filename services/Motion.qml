@@ -52,6 +52,13 @@ Singleton {
     readonly property real marqueeSpeed: 60 / slow // px per second
     readonly property int marqueeEndHold: 1000 * slow
     readonly property int marqueeReturn: 150 * slow
+    // Rich: the card slides up from behind the strip once the wipe (or a
+    // roll) ends, and back down before the note leaves or rolls. The SPEC
+    // gives the way up: the way down mirrors it, like the retract.
+    readonly property int cardRise: 220 * slow
+    readonly property int cardRiseEasing: Easing.OutCubic
+    readonly property int cardFall: 220 * slow
+    readonly property int cardFallEasing: Easing.InCubic
     // Critical: the leading-edge glow pulses between two opacities.
     readonly property int pulsePeriod: 1600 * slow
     readonly property real pulseLow: 0.4

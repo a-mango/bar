@@ -212,12 +212,12 @@ Item {
         }
     }
 
-    // A click on the OSD dismisses it (SPEC section 8; both buttons dismiss
-    // in the rules table). The other buttons belong to M5.
+    // A click on the OSD follows the rules table (SPEC section 8): left and
+    // right dismiss it, a middle click also dismisses the whole queue.
     MouseArea {
         anchors.fill: parent
         enabled: root.entry !== null
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
-        onClicked: Notifs.close(root.entry, "dismiss")
+        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+        onClicked: event => Notifs.click(root.entry, event.button === Qt.RightButton ? "right" : event.button === Qt.MiddleButton ? "middle" : "left")
     }
 }

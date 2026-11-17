@@ -51,7 +51,7 @@ Overlay rules:
 
 - Its input `mask` covers only what it draws, so the workspaces and the tray stay clickable while a note fills the center.
 - Its bottom edge is the output's bottom edge, so the 24 px strip lies exactly on the bar (spike S2).
-- The upper 72 px exist only for the rich card. They are outside the mask and transparent.
+- The upper 72 px exist only for the rich card. They are transparent, and outside the mask except where the card shows.
 - Namespaces: `bar` and `bar-overlay`. Keyboard focus: `WlrKeyboardFocus.None` for both.
 
 Handoff rule: while a note is visible, the overlay draws its own compact clock and the whole center span. The bar's clock never animates. The overlay's first and last frames reproduce the bar's idle center pixel for pixel (same font, position and colors), so the switch between the two windows cannot be seen (spike S7).
@@ -105,6 +105,8 @@ The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `ma
 
 The rule in section 5 decides the kind: only the apps `volume`, `brightness` and `microphone` are OSDs. Another app that sends a `value` hint stays a note (M1 choice, question Q3 in `PLAN.md` section 8).
 
+Rich card (decision D1): it sits in the overlay's upper 72 px, at the note region's left edge (right of the separator). It is a `base01` card, 72 px high, with a 4 px frame around a thumbnail 64 px high at the picture's aspect ratio, no wider than the note region (M5 choice, Q17). `notify-send -i <file>` arrives as `image://icon/<path>`, and the card loads the file itself at the physical size it draws. The picture loads in the background from the moment the line shows, since decoding a screenshot on the GUI thread blocks for 150 to 350 ms (`PLAN.md` section 8, M5 findings). A picture that does not load gives no card.
+
 Center span: while a note is visible, it runs from the end of the left section (plus 8 px) to the start of the tray (minus 8 px). From left to right, it holds the compact clock `HH:mm`, a `│` separator in `base03`, then the note line.
 
 - The compact clock is the bar's clock box made narrow: `base07` on `base00` with 7 px padding (54 px). With seconds shown in the bar, it keeps `HH:mm:ss`, so only the date leaves (M4 choice, Q15).
@@ -134,7 +136,7 @@ Note line, left to right:
 
 Timeout resolution: a positive `expireTimeout` from the sender wins (the OSD senders pass 800 ms). `-1` takes the rule's value. `0` never expires. Quickshell delivers `expireTimeout` in milliseconds, as sent. One exception overrides all three: a notification that DND hides always expires after 5000 ms, because nobody can click a notification that is never drawn.
 
-Fullscreen (decision D5): a notification whose rule does not show over fullscreen waits in the queue while its target output shows a fullscreen window. This matches what the owner sees today, since mako's normal notifications were on the top layer, under fullscreen windows. OSDs, screenshots and critical notifications still show over the fullscreen window. Screenshots get the same reasoning as their DND exception in the mako config: they answer a key press, and without them a successful shot looks like nothing happened.
+Fullscreen (decision D5): a notification whose rule does not show over fullscreen waits in the queue while its target output shows a fullscreen window. This matches what the owner sees today, since mako's normal notifications were on the top layer, under fullscreen windows. OSDs, screenshots and critical notifications still show over the fullscreen window. Screenshots get the same reasoning as their DND exception in the mako config: they answer a key press, and without them a successful shot looks like nothing happened. A note restored from history (`restore()`) shows over fullscreen for the same reason (M5 choice, Q19). A note already on display when fullscreen starts stays until it leaves, as with DND (M5 choice, Q16).
 
 Changes from the mako behavior:
 
@@ -157,7 +159,8 @@ Changes from the mako behavior:
    - Order: critical notifications first (newest first), then the others in arrival order (oldest first).
    - An OSD draws above the current note. The note's timer pauses and resumes once the OSD leaves.
    - A critical notification pushes the current note back to the front of the queue with its remaining time. The note's 30 s queue limit starts again at that moment (M1 choice, Q6). A newer critical also takes the span from an older one, which goes back to the front of the queue. `battery-appindicator` sends 20 %, 5 % and suspend warnings in a row, and the latest one must be the one on screen.
-   - While the target output shows a fullscreen window, notes whose rule does not show over fullscreen stay in the queue (decision D5). The first one appears when the fullscreen window leaves.
+   - While the target output shows a fullscreen window, notes whose rule does not show over fullscreen stay in the queue (decision D5). They keep their place and their queue limit, and the first entry that may show takes the span, so a screenshot passes the held notes. The first held note appears when the fullscreen window leaves. Until M6 the target output is the focused one.
+   - The pointer on the note (or its card) pauses its timer, like an OSD over it. The timer runs only while neither holds it.
    - A notification that has waited 30 s in the queue without being shown expires into history (reason 1). This includes notes held during fullscreen, so most notes that arrive during a film end up in history. Critical notifications are exempt: they stay until clicked (decision D2), so they wait in the queue as long as needed. Blocking senders such as `screenshot.sh` would otherwise wait for as long as the queue lasts.
 8. **Timers.** The server has no expiry timer, so all timers live in QML. Expiry calls `n.expire()` (reason 1). A dismiss click calls `n.dismiss()` (reason 2). An action click calls `action.invoke()`, which emits `ActionInvoked` and then closes with reason 2 unless the notification is `resident`. A sender's `CloseNotification` closes with reason 3, and the views react to the `closed` signal. A `resident` notification keeps its timer after an action and expires as usual. One scheduler `Timer` in `services/Notifs.qml` serves every deadline. QML timers are coarse (Qt allows 5 % error), so it wakes at 90 % of the wait and arms again, and a close lands within about 10 ms of its time. Every tracked notification must close eventually.
 9. **History.** The last 20 closed notifications whose rule keeps history and that are not `transient`. Entries are plain objects (app, summary, body, urgency, time), not `Notification` objects, kept across reloads in a `property list<var>` of a `PersistentProperties`. A `property var` holding a JS array comes back `undefined` after a reload (spike S8). `restore()` takes the newest entry off the list and shows it again as a plain note without actions, for 5000 ms. It queues like any other note and goes back to history when it closes (M1 choice, Q8). It has no D-Bus object, so a reload while it shows loses it.
@@ -185,16 +188,16 @@ OSD (full width):
 
 Critical: the leading-edge glow pulses between 0.4 and 1.0 opacity with a 1600 ms period while shown.
 
-Rich: the card slides up from behind the strip in 220 ms (`Easing.OutCubic`) after the note's wipe, and slides back down before the note leaves.
+Rich: the card slides up from behind the strip in 220 ms (`Easing.OutCubic`) after the note's wipe, and slides back down before the note leaves (220 ms, `Easing.InCubic`, M5 choice, Q18). It is clipped at the strip's top edge, so it comes out from behind it. Before a roll it slides down first, and the card of a rich line rises once the roll ends. A rich note replaced through the synchronous tag keeps its card up and changes the picture in place. A reload survivor comes back with its card up.
 
 Cost: no animation runs while idle. The overlay is unmapped, the bar redraws only when its content changes, and the marquee, pulse and blink timers stop when nothing uses them.
 
 ## 8. Input
 
-- Overlay clicks land only on drawn content. Everything else reaches the bar.
-- Note clicks follow the rules table. A middle click dismisses the current notification and the whole queue.
-- Hovering a note pauses its timer and its marquee. Leaving resumes both.
-- An OSD covers the whole bar for up to 2 s. A click on it dismisses it (left or right button, as in the rules table). While it fades out, its input mask is empty, so clicks reach the bar (M3 choice).
+- Overlay clicks land only on drawn content. Everything else reaches the bar, or the window above the bar for the transparent upper 72 px. The input mask combines the strip's content with the visible part of the rich card.
+- Note clicks follow the rules table: "default action if any" means the action with the identifier `default`, and `invoke action discard` falls back to a dismiss when the sender gave no such action. The rich card takes the same clicks as its note. A middle click dismisses the current notification and the whole queue. A click during the leave animation (after the notification closed) does nothing.
+- Hovering a note (the span or its card) pauses its timer and its marquee. Leaving resumes both. The hover follows pointer motion, so a note that appears under a resting pointer keeps running until the pointer moves (M5 choice, Q21). A view that unmaps under the pointer leaves no hover behind.
+- An OSD covers the whole bar for up to 2 s. A click on it dismisses it (left or right button, as in the rules table). A middle click also dismisses the queue, as on a note (M5 choice, Q20). While it fades out, its input mask is empty, so clicks reach the bar (M3 choice).
 - Tray menus open as popups of the bar window. They are the only part of bar that may need keyboard input. Spike S9 showed that they get none while the bar's keyboard focus is `None`: arrow keys and Escape go to the focused window, and the menu only reacts to the pointer. Switching to `WlrKeyboardFocus.OnDemand` once a menu is open does not help, because sway gives the focus on a click and that click has already happened. What works is `OnDemand` while the pointer is on the tray or a menu is open: the opening click then focuses the bar, and the focus returns to the window when the menu closes. `OnDemand` at all times is ruled out, since the bar would keep the keyboard after any click on it. Whether menus get keyboard input at all is question Q2 in `PLAN.md` section 8. Until it is answered, the bar stays at `None`.
 
 ## 9. Inter-Process Communication (IPC)
@@ -212,7 +215,7 @@ Calls use `quickshell ipc -p <config dir> call <target> <function> [args]`. Type
 | `dismissAll()` | dismisses the queue, the current notification and the OSD. Notifications hidden by DND are left to their 5 s |
 | `restore()` | shows the newest history entry again (section 6, item 9) |
 | `invoke(action: string)` | invokes the named action on the current notification |
-| `status(): string` | JSON `{dnd, visible, kind, queued, current: {id, app, summary}}`, for tests and scripts. `current` is the OSD while one shows. The matrix reads more fields: `note`, `osd`, `waiting`, `hidden`, `history`, `tracked` |
+| `status(): string` | JSON `{dnd, visible, kind, queued, current: {id, app, summary}}`, for tests and scripts. `current` is the OSD while one shows. The matrix reads more fields: `note`, `osd`, `waiting`, `held` (waiting notes held by fullscreen), `fullscreen`, `hovered`, `hidden`, `history`, `newest` (summary of the newest history entry), `tracked` |
 
 `theme` target: `set(mode: string)` with `dark` or `light`, and `mode(): string`.
 
@@ -241,7 +244,7 @@ Sway bindings (decision D3), installed at cutover from `packaging/sway-bindings.
 
 - One bar window and one overlay window per screen, through `Variants { model: Quickshell.screens }`.
 - Each bar shows the workspaces of its own output. The clock and tray appear on every bar.
-- Fullscreen state per output comes from sway IPC: `swaymsg -t get_tree` at startup, then `window` events (`fullscreen_mode` changes) and `workspace` events through an `I3IpcListener`. An output counts as fullscreen when its visible workspace holds a fullscreen container, or when a global fullscreen window exists.
+- Fullscreen state per output comes from sway IPC: `swaymsg -t get_tree` at startup, then `window` events (`fullscreen_mode` changes) and `workspace` events through an `I3IpcListener`. An output counts as fullscreen when its visible workspace holds a fullscreen container, or when a global fullscreen window exists. Events only say that something changed: every `window` event that can change the answer (`fullscreen_mode`, `close`, `move`, `floating`, `new`), every `workspace` event but `urgent` and every `output` event reads the tree again, one `swaymsg` at a time. In the tree, workspace nodes always report `fullscreen_mode: 1`, so only `con` and `floating_con` nodes count, and the scratchpad output `__i3` never does (`PLAN.md` section 8, M5 findings).
 - A notification shows on the output that is focused when it becomes visible (`I3.focusedMonitor.name` matched to `ShellScreen.name`) and stays there until it leaves. OSD updates with the same synchronous tag stay where the OSD started.
 - Plugging or unplugging an output (dock) must not crash the shell or leave a stale surface.
 
@@ -302,9 +305,9 @@ Notifications:
 | N17 | fullscreen test client, a plain note, fullscreen off after 10 s; then the same with 35 s | first run: the note appears after the exit. Second run: nothing appears, the note is in history, reason 1 |
 | N18 | two `-u critical -a battery-appindicator` notes 1 s apart, neither clicked, checked after 60 s | both still tracked, the newer one visible with `+1`, and dismissing it shows the older one |
 
-N5 and N6 save frame series (`tests/frames.py`: shots at 0, 60, 120, 300 and 900 ms, each stamped with its frame time). N6 also saves palette sheets in both themes and checks that a click dismisses the OSD. B7 covers the OSD part until M5 adds the screenshot note and the held plain note.
+N5 and N6 save frame series (`tests/frames.py`: shots at 0, 60, 120, 300 and 900 ms, each stamped with its frame time). N6 also saves palette sheets in both themes and checks that a click dismisses the OSD. B7 covers the OSD, the screenshot note with its card over the client, the held plain note and its appearance once fullscreen ends. N7 uses real clicks (`tests/nested.sh click`) on the card and the note line, and saves a frame series of the card rising after the wipe and falling before the leave.
 
-`tests/matrix.sh` has eight more cases:
+`tests/matrix.sh` has ten more cases:
 
 - `SC`: `GetCapabilities` and the `screenshot.sh` contract of section 12 through IPC (`invoke discard` prints `discard`, the 10 s timeout prints nothing).
 - `NX`: paths where a notification could get stuck or lose its place. A `resident` notification after its action, `replaces_id` updates of waiting and hidden notifications, and the order of `dismissAll`.
@@ -313,6 +316,8 @@ N5 and N6 save frame series (`tests/frames.py`: shots at 0, 60, 120, 300 and 900
 - `HO`: the handoff of section 2. With the note view held at its first and last frame, both frames and the bar after the unmap are pixel-identical to the idle bar.
 - `NW`: the width rule of section 3. Beside the `present:` stand-in the mode shows in full, beside a longer fictional mode it elides so that the span keeps 600 px, and it comes back in full after the note.
 - `CPU`: the idle cost of section 7. `top -b -n 5 -d 1` on the bar process, saved to `.test/logs/m4/cpu-idle.log`.
+- `HV`: the hover pause of section 8. A frame series with the pointer on a 3 s note from 1 s to 4 s (the progress line stands still, the note closes after 6 s), the marquee standing still under the pointer, the card counting as the note, and no hover left behind after an unmap under the pointer.
+- `CL`: clicks per the rules table. A left click runs the default action, a right click only dismisses, a left click dismisses a critical without actions, a middle click dismisses the note and the whole queue, also from an OSD over a note.
 - `END`: nothing is left tracked and the overlay is unmapped. It runs last, right after N16.
 
 N1, N3 and N4 also save frame series of the bar strip (`tests/strip-frames.py`, with the slow-motion factor of the `debug` target), N2 and N15 at normal speed.

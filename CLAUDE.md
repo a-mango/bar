@@ -87,3 +87,8 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - `PanelWindow` does not expose `_backingWindow` to QML. Use an item's attached `Window.window` for `frameSwapped`.
 - `mask: Region { item: null }` is an empty input region: every click goes through to the bar.
 - `debug state` lists the overlays of every output. Until M6 each overlay maps, so tests count maps and entries on HEADLESS-1 only.
+- The pointer on a note pauses its timer, and `tests/nested.sh click` leaves the pointer where it clicked. Park it (`scene hover 960 600`, `park` in `tests/matrix.sh`) before a timing check. Hover follows pointer motion: a note that maps under a resting pointer is not hovered.
+- In `swaymsg -t get_tree`, every workspace node reports `fullscreen_mode: 1`. Count only `con` and `floating_con` nodes.
+- An `Image` without `asynchronous: true` decodes on the GUI thread: a screenshot PNG blocks for 150 to 350 ms.
+- A `tests/client` window killed through sway leaves its `quickshell` process running. Kill it by PID.
+- The notification history keeps 20 entries, and a full matrix run fills it. Check `newest` in `notify status`, not a count that grows.
