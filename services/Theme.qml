@@ -28,39 +28,50 @@ Singleton {
             light: parse(lightFile.text())
         })
     readonly property var palette: palettes[mode] ?? palettes.dark
+    // A mode change crossfades every color (Motion.themeFade, Q26). Not at
+    // startup: the answer of `darkman get` after the stored mode swaps at
+    // once, so a login never shows a fade.
+    property bool started: false
 
     property color base00: palette.base00
-    Behavior on base00 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base00 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base01: palette.base01
-    Behavior on base01 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base01 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base02: palette.base02
-    Behavior on base02 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base02 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base03: palette.base03
-    Behavior on base03 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base03 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base04: palette.base04
-    Behavior on base04 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base04 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base05: palette.base05
-    Behavior on base05 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base05 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base06: palette.base06
-    Behavior on base06 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base06 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base07: palette.base07
-    Behavior on base07 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base07 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base08: palette.base08
-    Behavior on base08 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base08 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base09: palette.base09
-    Behavior on base09 { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base09 { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base0A: palette.base0A
-    Behavior on base0A { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base0A { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base0B: palette.base0B
-    Behavior on base0B { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base0B { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base0C: palette.base0C
-    Behavior on base0C { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base0C { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base0D: palette.base0D
-    Behavior on base0D { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base0D { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base0E: palette.base0E
-    Behavior on base0E { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base0E { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
     property color base0F: palette.base0F
-    Behavior on base0F { enabled: Motion.themeFade > 0; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+    Behavior on base0F { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
+
+    // Text over an OSD fill (Q10): base00 in dark mode, base07 in light
+    // mode, where base00 has 1.4:1 on the brightness fill. Both are
+    // #181818. Its own property, so that it fades with the others instead
+    // of jumping when the mode changes.
+    property color onFill: mode === "light" ? palette.base07 : palette.base00
+    Behavior on onFill { enabled: root.started; ColorAnimation { duration: Motion.themeFade; easing.type: Motion.themeFadeEasing } }
 
     // Reads the 16 `@define-color baseXX #rrggbb;` lines of a base16 CSS file.
     function parse(css: string): var {
@@ -108,6 +119,7 @@ Singleton {
                 root.setMode(answer);
             else
                 console.info("theme: darkman get failed (exit " + code + "), keeping", root.mode);
+            root.started = true;
         }
     }
 
