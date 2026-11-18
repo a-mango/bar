@@ -98,9 +98,11 @@ class Item(ServiceInterface):
     def WindowId(self) -> "i":
         return 0
 
+    # FAKE_SNI_ICON sets a theme icon name, as most real applets send (the
+    # pixmap stays as a fallback). Without it the item sends the pixmap only.
     @dbus_property(access=PropertyAccess.READ)
     def IconName(self) -> "s":
-        return ""
+        return os.environ.get("FAKE_SNI_ICON", "")
 
     @dbus_property(access=PropertyAccess.READ)
     def IconPixmap(self) -> "a(iiay)":

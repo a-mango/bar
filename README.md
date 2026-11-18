@@ -2,8 +2,8 @@
 
 A status bar and notification daemon for [sway](https://swaywm.org), written as a single [Quickshell](https://quickshell.org) (QML) config. It replaces waybar and mako on one desktop, and keeps waybar's look when nothing is happening.
 
-- **Bar** on every output: workspaces and the sway mode on the left, the clock in the center (a click shows seconds, hovering opens a calendar), the system tray on the right with menus drawn in QML.
-- **Notifications** (`org.freedesktop.Notifications`, spec 1.2): a note grows out of the clock and fills the center of the bar. Waiting notes roll in one after another, long lines scroll, and criticals turn the span red until clicked. Actions, Do Not Disturb, a history of 20 with restore, and fullscreen-aware placement are built in. Screenshot notifications show the picture in a card above the bar, and a right click discards the file.
+- **Bar** on every output: workspaces (click or scroll) and the sway mode on the left, the clock in the center (a click shows seconds, hovering opens a calendar), the system tray on the right with menus drawn in QML.
+- **Notifications** (`org.freedesktop.Notifications`, spec 1.2): a note grows out of the clock and fills the center of the bar. Waiting notes roll in one after another, long lines scroll, and criticals turn the span red until clicked. Actions, Do Not Disturb, a history of 20 with restore, and fullscreen-aware placement are built in. When you click a notification, bar sends an activation token, so a terminal like kitty marks its window urgent. Screenshot notifications show the picture in a card above the bar, and a right click discards the file.
 - **OSDs** for volume, brightness and the microphone take the full width of the bar for a moment (the `x-canonical-private-synchronous` hint with an `int:value:` hint).
 - **Tray**: bar is the `org.kde.StatusNotifierWatcher` and the host.
 - **Themes**: base16 Default Dark and Light, switched live by [darkman](https://gitlab.com/WhyNotHugo/darkman) with a 300 ms crossfade. The bar never unmaps, so windows don't re-tile.

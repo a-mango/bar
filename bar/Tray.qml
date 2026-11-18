@@ -16,6 +16,15 @@ Row {
     id: root
 
     readonly property int count: items.count
+    // The cells drawn. Passive items are hidden, as waybar hides them
+    // (`show-passive-items` is false by default), and the Row closes up.
+    readonly property int shown: {
+        let n = 0;
+        for (let i = 0; i < items.count; i++)
+            if (root.cell(i) && !root.cell(i).passive)
+                n++;
+        return n;
+    }
     readonly property bool menuOpen: {
         for (let i = 0; i < items.count; i++)
             if (root.cell(i)?.menuOpen)
@@ -46,8 +55,17 @@ Row {
 
             required property SystemTrayItem modelData
             readonly property bool attention: modelData.status === Status.NeedsAttention
+            readonly property bool passive: modelData.status === Status.Passive
             readonly property bool menuOpen: menu.visible
             property bool tooltipShown: false
+
+            visible: !passive
+            onPassiveChanged: {
+                if (passive) {
+                    closeMenu();
+                    tooltipShown = false;
+                }
+            }
 
             function openMenu(): void {
                 root.closeMenus();
@@ -115,7 +133,6 @@ Row {
                 width: 16
                 height: 16
                 source: cell.modelData.icon
-                opacity: cell.modelData.status === Status.Passive ? 0.5 : 1
             }
 
             // Grows up and to the left from the icon's top right corner,

@@ -27,6 +27,27 @@ ShellRoot {
     // so that `debug state` shows whether a bar was replaced.
     property int barsCreated: 0
 
+    // The live copy (`make install`, docs/PLAN.md section 6) holds a `live`
+    // file with the tag it was installed from. It never reloads on a file
+    // change: a reload would drop the bar's exclusive zone and re-tile every
+    // window. The tree itself has no such file and keeps hot reloading.
+    property string live: ""
+
+    FileView {
+        id: liveMarker
+        path: Quickshell.shellPath("live")
+        blockLoading: true
+        printErrors: false
+    }
+
+    Component.onCompleted: {
+        root.live = liveMarker.text().trim();
+        if (root.live !== "") {
+            Quickshell.watchFiles = false;
+            console.info("bar: live copy", root.live + ", file watching off");
+        }
+    }
+
     // One bar and one overlay per screen (docs/SPEC.md section 11). Variants
     // keeps the instances of the screens that stay when one comes or goes.
     Variants {
@@ -73,6 +94,11 @@ ShellRoot {
             root.noteHold = on;
         }
 
+        // Another activation helper for a test of the fallback, "" resets.
+        function tokenHelper(path: string): void {
+            Notifs.tokenHelper = path;
+        }
+
         function noteRelease(): void {
             for (const o of overlays.instances)
                 o.releaseNote();
@@ -88,6 +114,8 @@ ShellRoot {
 
         function state(): string {
             return JSON.stringify({
+                live: root.live,
+                watchFiles: Quickshell.watchFiles,
                 overlay: root.overlayMode,
                 theme: Theme.mode,
                 mode: Sway.mode,
@@ -122,7 +150,8 @@ ShellRoot {
                                 elided: b.mode.elided,
                                 visible: b.mode.visible
                             },
-                            tray: b.tray.count
+                            tray: b.tray.count,
+                            trayShown: b.tray.shown
                         })),
                 overlays: overlays.instances.map(o => ({
                             screen: o.output,

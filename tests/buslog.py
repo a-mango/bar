@@ -7,6 +7,9 @@
                                            the time since the last Notify
                                            call with that summary
     tests/buslog.py LOG count ID           number of NotificationClosed for ID
+    tests/buslog.py LOG token ID           "first <ms>": ActivationToken for ID came
+                                           <ms> before its ActionInvoked; "after",
+                                           "missing" or "no action" otherwise
 
 All times come from the `time=` fields of the log, so they share one clock.
 """
@@ -48,6 +51,8 @@ def describe(e):
         return f"action  {e['time']:.3f} id={a[0]} key={a[1]!r}"
     if e["member"] == "CloseNotification" and a:
         return f"close   {e['time']:.3f} id={a[0]}"
+    if e["member"] == "ActivationToken" and len(a) >= 2:
+        return f"token   {e['time']:.3f} id={a[0]} token={a[1]!r}"
     return f"{e['member']:7} {e['time']:.3f} {a}"
 
 
@@ -66,5 +71,17 @@ elif sys.argv[2] == "closed":
 elif sys.argv[2] == "count":
     nid = int(sys.argv[3])
     print(sum(1 for e in evs if e["member"] == "NotificationClosed" and e["args"][:1] == [nid]))
+elif sys.argv[2] == "token":
+    nid = int(sys.argv[3])
+    token = [e["time"] for e in evs if e["member"] == "ActivationToken" and e["args"][:1] == [nid]]
+    action = [e["time"] for e in evs if e["member"] == "ActionInvoked" and e["args"][:1] == [nid]]
+    if not action:
+        print("no action")
+    elif not token:
+        print("missing")
+    elif token[0] <= action[0]:
+        print(f"first {(action[0] - token[0]) * 1000:.0f}")
+    else:
+        print("after")
 else:
     sys.exit(__doc__)

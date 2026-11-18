@@ -720,36 +720,24 @@ Item {
         }
     }
 
-    // The leading edge: a 2 px base0D line (Theme.onCritical on a
-    // critical) with a soft halo, kept inside
-    // the bar's height and short of the tray. The halo comes from
-    // shaders/wipe.frag (M7, chosen over a MultiEffect shadow), the line is
-    // a Rectangle on top so that it snaps to pixels like the rest.
+    // The leading edge: a plain 2 px line, base07 (white in dark mode, dark
+    // in light mode) and Theme.onCritical on a critical, where its opacity
+    // carries the pulse. It replaced the base0D line with a shader halo
+    // after the M8 cutover (the owner).
     Item {
         visible: region.visible
         x: root.spanX
-        width: Math.max(0, root.spanEnd + 7 - root.spanX)
+        width: Math.max(0, root.spanEnd - root.spanX)
         height: Theme.barHeight
         clip: true
-
-        ShaderEffect {
-            anchors.fill: parent
-            fragmentShader: Qt.resolvedUrl("../shaders/wipe.frag.qsb")
-            property color color: core.color
-            property size size: Qt.size(width, height)
-            property real center: core.x + 1
-            property real strength: root.glow * Motion.edgeHalo
-            property real radius: Motion.edgeRadius
-        }
 
         Rectangle {
             id: core
             x: region.x + region.width - 2 - root.spanX
             width: 2
             height: Theme.barHeight
-            // White on a critical (M7): base0D's halo on base08 blended to
-            // a muddy mauve-gray.
-            color: root.critical ? Theme.onCritical : Theme.base0D
+            color: root.critical ? Theme.onCritical : Theme.base07
+            opacity: root.glow
         }
     }
 

@@ -11,18 +11,19 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - `make reference`: nested session running waybar with `docs/reference/waybar/`, screenshot of its bar (visual target)
 - `make matrix`: run the `docs/SPEC.md` test matrix against the nested session (about 10 minutes). `make matrix CASE=N5` runs one case, `CASE="N13 N18"` several.
 - `make shots`: screenshot the nested output into `.test/shots/`
+- `BAR_SWAY_DEBUG=1 make nested`: the nested sway logs at debug level into `.test/logs/sway.log`
+- `tests/nested.sh run tests/wheel.py notch <n>` (negative: up) or `finger <px> <frames>`: wheel notches or a touchpad swipe at the cursor position
 - `tests/nested.sh run tests/frames.py <dir> "<ms> run <command>" "<ms> shot" ...`: frame series. Commands and region shots on a schedule, each shot stamped with its frame time, plus `<dir>/sheet.png` and `frames.json`
 - `make log`: follow the nested Quickshell log
 - `make test`: `node --test tests/*.test.mjs` (unit tests for `services/Rules.js` and `services/Markup.js`)
 - `tests/strip-frames.py <dir> <label> <slow> <ms...> [-- command]`: frame series of the bar strip through grim, from the host. Pair it with `call debug slow <factor>`, and reset the factor to 1 afterwards.
 - `tests/clip.sh <round> [scene...]`: review clips through wf-recorder (lossless, bottom 96 px of HEADLESS-1) into `.test/clips/<round>/`, one per scene plus `all.mp4`. `tests/clip-ab.py OUT.mp4 A.mp4 B.mp4 ...` stacks clips aligned on the first frame with the note edge. Play at native size: `mpv --loop --video-unscaled=yes`.
-- `make shaders`: compile `shaders/*.frag` to `.qsb` with `/usr/lib64/qt6/bin/qsb`
 - `make lint`: `qmllint` on all QML files through `tests/lint.sh` (needs `qt6-qtdeclarative-devel`)
-- `make install`: copy the tree to `~/.local/share/bar` as the live copy (M8 only, after the owner's go-ahead)
+- `make install`: build the live copy in `~/.local/share/bar` from the tagged, committed HEAD (with the `live` marker), then `systemctl --user restart bar.service`. Only with the owner's go-ahead. `DEST=/abs/path` installs elsewhere (dry run in a `bare` nested session).
 
 ## Rules
 - Quickshell API: check every type, property, signal and enum in `/usr/lib64/qt6/qml/Quickshell/**/*.qmltypes` before using it, never from memory. Fedora ships snapshot `0.2.1^git20260209.dacfa9d`, and the online docs track a newer version.
-- IMPORTANT: the live session is off limits until M8 is approved. Do not stop, reload or reconfigure mako or waybar. Do not edit `~/.config/sway`, `~/.config/waybar`, `~/.config/mako`, `~/.local/share/darkman`, `~/.local/share/dbus-1` or `~/.config/systemd/user`. Never run `quickshell`, `notify-send` or a tray test against the real `WAYLAND_DISPLAY` or session bus.
+- IMPORTANT: since the M8 cutover (2026-11-18) the live bar runs from `~/.local/share/bar` as `bar.service`, and mako is uninstalled. Touch the live session only with the owner's go-ahead in the session: no restart of `bar.service`, no `make install`, no edit of `~/.config/sway`, `~/.local/share/darkman`, `~/.local/share/dbus-1` or `~/.config/systemd/user`, no `swaymsg reload`. Never run `quickshell` on this tree, a tray test or the matrix against the real `WAYLAND_DISPLAY` or session bus. Rollback: `docs/PLAN.md` section 6.
 - Read the replaced configs from `docs/reference/`, not from the live directories.
 - Nested sway only through `tests/nested.sh` (absolute paths, overridden `SWAYSOCK`, minimal config, private bus). Never start sway with the user's config.
 - Real tray applets act on the real system (network, Bluetooth, audio). If one runs in the nested session, only open and close its menu, never trigger an entry. Activation and menu-click tests use `tests/fake-sni.py`.
@@ -43,7 +44,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 <!-- Add one line per non-obvious lesson learned; prune when obsolete. -->
 - The binary is `quickshell`, not `qs`. IPC: `quickshell ipc -p <config dir> call <target> <fn>`, and it only sees instances on the current Wayland display.
 - Use the long form `--no-duplicate`: the help text lists `-n` for both `--newest` and `--no-duplicate`.
-- Quickshell hot-reloads on every file change, but can miss the second of two quick edits. If the log shows no second `Configuration Loaded`, `touch` the file. The live copy (M8) runs from `~/.local/share/bar` with `Quickshell.watchFiles` set to false, never from this tree.
+- Quickshell hot-reloads on every file change, but can miss the second of two quick edits. If the log shows no second `Configuration Loaded`, `touch` the file. The live copy runs from `~/.local/share/bar`, never from this tree: its `live` file (written by `make install`) makes `shell.qml` set `Quickshell.watchFiles` to false, and `debug state` reports `live` and `watchFiles`. A running live instance does not pick up a new install until `bar.service` restarts.
 - `Notifs.current` passes through `null` when the next note takes the span. Views read it through `Qt.callLater`, or a queue roll looks like a leave and an entry.
 - The note view draws from snapshots: the leave and the roll run after the notification closed. The overlay's visibility follows `NoteView.active`, not `Notifs.current`.
 - A host suspend during `make matrix` breaks the timing checks of the running case (a 1.5 s timeout measured as 40,049 s). Before chasing a timing failure, check `journalctl | grep 'will suspend now'`.
@@ -77,6 +78,10 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - The I3 event listener also delivers the reply to `SUBSCRIBE` as an event of type `subscribe`.
 - `pkill -f <pattern>` matches the shell that runs it when the pattern is on its own command line. Kill by PID.
 - A QML type named `State` loses to QtQuick's `State`. Do not name a singleton after a QtQuick type.
+- Never use Quickshell's `I3.workspaces`, `I3.focusedMonitor`, `I3Workspace` or `I3Monitor`: after an output goes away (lid close, suspend), the next workspace event reads a freed `I3Monitor` and crashes or hangs bar. `services/Sway.qml` reads `swaymsg -t get_workspaces` on `I3IpcListener` events, which are safe. Matrix case LID covers it.
+- `swaymsg seat seat0 cursor press button4` reaches Qt as `angleDelta` 1, not one notch (120). Use `tests/wheel.py` for anything that counts notches.
+- kitty in the nested session raises its window on a notification click only with a held keyboard (`wtype -s 3600000`): a kitty that never had keyboard focus never asks. Test activation with `WAYLAND_DEBUG=1 kitty --config NONE`.
+- `helpers/activation-token.py` emits `ActivationToken` from its own bus connection. kitty accepts it, clients that match the signal by sender (GLib) do not.
 - `swaymsg` joins its arguments into one command string: quote names with spaces inside the argument (`mode "\"$name\""`), and pass `--` before commands that contain `--custom`.
 - sway may place a new output (`create_output`) first and move HEADLESS-1. `tests/scene.sh focus-other` and `plug` put both outputs back at x 0 and 1920.
 - sway numbers headless outputs on from the last one created: after an unplug, `create_output` gives HEADLESS-3, then HEADLESS-4. Get the name from `tests/scene.sh other`, never hard-code HEADLESS-2. `tests/scene.sh unplug` removes it.
@@ -87,7 +92,6 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - sway does not slide popups of layer surfaces back onto the output. Anchor popups near an edge so that they grow away from it.
 - The nested session has `tests/bin` first on `PATH`: `darkman get` is the stub, which answers from `.test/darkman-mode` or fails.
 - grim reads back the whole 3840x2400 output for every shot, even with `-g`. That blocks the compositor (and Quickshell) for about 80 ms. Use `tests/frames.py` for anything timed.
-- A changed `.qsb` needs a Quickshell restart (`make nested-stop`, `make nested`): after a hot reload, Qt kept the old shader for the same URL, and with a changed uniform block the halo vanished. `*.qsb` is gitignored, so run `make shaders` after a checkout.
 - wf-recorder without `-D` exits only after the next damaged frame, up to a minute on an idle bar. Clips also need lossless RGB (`libx264rgb`, crf 0): 4:2:0 turns the 2 px edge gray, and yuv444p shifts colors through the range conversion.
 - A `PopupWindow` with `grabFocus` ignores clicks on bar's own surfaces (same client): the bar closes tray menus itself. Watch presses over the bar with a `PointHandler`: a `TapHandler` on an item on top swallowed them.
 - After an edit to a singleton file alone (seen with `services/Motion.qml`), the hot reload kept the old values. Touch `shell.qml` as well.
@@ -101,3 +105,6 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - The notification history keeps 20 entries, and a full matrix run fills it. Check `newest` in `notify status`, not a count that grows.
 - A notification maps only the overlay of the output it was placed on (`output` in `notify status`), the focused one when it became visible. `reset_notifs` in `tests/matrix.sh` focuses HEADLESS-1. Cases that move the focus use `focus_other` and `focus_main`, which wait until `debug state` reports the new `focusedOutput`.
 - Entries are plain JS objects without change signals: set `e.output` before assigning `osd` or `current`, and bump `Notifs.placed` when an entry on display moves, or a view sees the entry without its output.
+- The live session exports `QT_QPA_PLATFORMTHEME=qt6ct` (icon theme `Adwaita`, a dangling `~/.local/share/icons/Adwaita` link), the nested session nothing. `bar.service` sets `QS_ICON_THEME=AdwaitaLegacy`, the theme waybar used through GTK. Test named tray icons with `FAKE_SNI_ICON=<name> tests/fake-sni.py`: by default it sends a pixmap only.
+- Flatpak apps (Teams for Linux) register their tray item through `xdg-dbus-proxy`: the bus name and PID belong to the proxy. `flatpak ps` maps the PID back to the app.
+- sway starts `swaybar_command` at config load only, not after the bar dies or on a hotplug. `90-bar.conf` keeps waybar's block commented out so that a `swaymsg reload` does not bring waybar back.

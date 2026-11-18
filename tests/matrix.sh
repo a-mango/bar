@@ -114,6 +114,24 @@ case_B1() {
     click 65 $MID; sleep 0.3
     check "focused workspace after a click on 3" "$(focused_ws)" 3 || f=1
     n swaymsg -q workspace 2
+    # The wheel steps through this output's workspaces and wraps around
+    # (after M8). Up first, so that the urgent 3 is never focused.
+    echo "  wheel and touchpad over the workspaces (tests/wheel.py)"
+    scene hover 13 $MID; sleep 0.2
+    n "$REPO/tests/wheel.py" notch -1; sleep 0.3
+    check "one notch up from 2" "$(focused_ws)" 1 || f=1
+    n "$REPO/tests/wheel.py" notch 1; sleep 0.3
+    check "one notch down, back" "$(focused_ws)" 2 || f=1
+    n "$REPO/tests/wheel.py" notch -2; sleep 0.3
+    check "two quick notches up from 2: 1, then wraps to the last" "$(focused_ws)" 4:demo || f=1
+    n "$REPO/tests/wheel.py" notch 2; sleep 0.3
+    check "two notches down: wraps to 1, then 2" "$(focused_ws)" 2 || f=1
+    n "$REPO/tests/wheel.py" finger -4 10; sleep 0.5
+    check "a 40 px touchpad swipe: no step" "$(focused_ws)" 2 || f=1
+    n "$REPO/tests/wheel.py" finger -6 10; sleep 0.3
+    check "a 60 px touchpad swipe up: one step" "$(focused_ws)" 1 || f=1
+    n swaymsg -q workspace 2
+    scene hover 960 600
     return $f
 }
 
@@ -192,10 +210,17 @@ case_B5() {
     b=$(shot B5 attention-2); sleep 0.55
     c=$(shot B5 attention-3)
     more "NeedsAttention: the background above icon $index changes" "$(python3 -c "print(max($(px "$a" diff "$b" $((x - 8)) 1177 $((x + 8)) 1179), $(px "$b" diff "$c" $((x - 8)) 1177 $((x + 8)) 1179)))")" 1 || f=1
+    # Passive items are hidden, as waybar hides them (M8): the right-aligned
+    # Row closes up, so the leftmost slot empties and the tray starts 30 px
+    # further right.
+    b=$(state "$(bar1)['trayStart']")
     scene tray 1 Passive; sleep 0.3
     a=$(shot B5 passive)
-    check "Passive: no blink background" "$(px "$a" color $x $TOP)" "$(palette base00)" || f=1
+    check "Passive: icons drawn" "$(state "$(bar1)['trayShown']")" $((count - 1)) || f=1
+    check "Passive: leftmost slot empty (one color)" "$(px "$a" ink $(($(tray_x 0 "$count") - 8)) 1180 $(($(tray_x 0 "$count") + 8)) 1196)" 1 || f=1
+    check "Passive: tray start moves right" "$(python3 -c "print(round($(state "$(bar1)['trayStart']") - $b))")" 30 || f=1
     scene tray 1 Active; sleep 0.3
+    check "Active again: icons drawn" "$(state "$(bar1)['trayShown']")" "$count" || f=1
     mark=$(wc -l < "$log")
     click "$x" $MID; sleep 0.3
     click "$x" $MID button2; sleep 0.3
@@ -390,7 +415,7 @@ case_N1() {
     reset_notifs
     bus_start N1
     id=$(send "Build finished" "demo-app compiled in 42 s")
-    sleep 1
+    sleep 1.4
     s=$(shot N1 visible)
     check "on display" "$(notif "d['current']['summary']")" "Build finished" || f=1
     check "kind" "$(notif "d['kind']")" note || f=1
@@ -413,8 +438,8 @@ case_N1() {
 
     echo "  frame series (slow motion x10): enter, then leave after a dismiss"
     ipc debug slow 10
-    strip_frames N1 enter 10 0 40 80 120 160 200 240 280 320 400 480 560 640 -- notify-send -t 30000 "Build finished" "demo-app compiled in 42 s"
-    strip_frames N1 leave 10 0 60 120 180 240 300 360 420 480 540 -- quickshell ipc -p "$REPO" call notify dismiss
+    strip_frames N1 enter 10 0 80 160 240 320 400 480 560 640 720 800 900 1050 -- notify-send -t 30000 "Build finished" "demo-app compiled in 42 s"
+    strip_frames N1 leave 10 0 100 200 300 400 500 600 700 800 900 -- quickshell ipc -p "$REPO" call notify dismiss
     ipc debug slow 1
     wait_unmapped
     reset_notifs
@@ -439,7 +464,7 @@ case_N3() {
     until_t "$ta" 4.5
     ipc debug slow 10
     echo "  frame series of the roll (slow motion x10)"
-    FRAMES_T0=$(python3 -c "print($ta + 5.0)") strip_frames N3 roll 10 0 25 50 75 100 125 150 200 300
+    FRAMES_T0=$(python3 -c "print($ta + 5.0)") strip_frames N3 roll 10 0 25 50 75 100 150 200 300 400
     check "second on display after the first leaves" "$(notif "d['current']['summary']")" "Note two" || f=1
     check "waiting (+1)" "$(notif "d['queued']")" 1 || f=1
     check "counter after the roll" "$(view "v['counter']")" "+1" || f=1
@@ -799,26 +824,26 @@ case_N2() {
     body=$(python3 -c 'import sys; s = "Fictional release notes for demo-app: the parser reads longer lines, the cache keeps fewer copies, the demo theme gains two colors. "; print((s * 4)[:400])')
     bus_start N2
     echo "  frame series at normal speed: hold for 1200 ms once the wipe ends, then the scroll"
-    "$REPO/tests/strip-frames.py" "$T/shots/N2" marquee 1 300 800 1300 1700 2100 2500 3000 3500 4000 4500 -- notify-send -p "Release notes" "$body" > "$T/logs/N2-frames.out" &
+    "$REPO/tests/strip-frames.py" "$T/shots/N2" marquee 1 300 800 1300 1800 2100 2500 3000 3500 4000 4500 -- notify-send -p "Release notes" "$body" > "$T/logs/N2-frames.out" &
     fp=$!
     sleep 1.25
     id=$(notif "d['current']['id']")
     read -r o1 <<< "$(view "v['marquee']['offset']")"
     check "body length" "$(view "len(v['line']['body'])")" 400 || f=1
     more "line wider than its space (overflow px)" "$(view "int(v['marquee']['overflow'])")" 1 || f=1
-    check "1.25 s after arrival: holding at the start (wipe 560 ms + hold 1200 ms)" "$o1" 0 || f=1
-    sleep 1.25
+    check "1.25 s after arrival: holding at the start (compact 432 + wipe 576 ms, then hold 1200 ms)" "$o1" 0 || f=1
+    sleep 1.75
     # Speed: two reads 1 s apart, each timed around its IPC call.
     read -r o1 t1 <<< "$(view "f\"{v['marquee']['offset']} {__import__('time').time()}\"")"
     sleep 1
     read -r o2 t2 <<< "$(view "f\"{v['marquee']['offset']} {__import__('time').time()}\"")"
-    more "2.5 s after arrival: scrolled left (px)" "${o1%.*}" 20 || f=1
+    more "3 s after arrival: scrolled left (px)" "${o1%.*}" 20 || f=1
     within "scroll speed (px/s)" "$(python3 -c "print(f'{($o2 - $o1) / ($t2 - $t1):.1f}')")" 60 8 || f=1
     wait "$fp" || true
     echo "  frames: $(tail -n 1 "$T/logs/N2-frames.out")"
-    a=$T/shots/N2/marquee-00800.png
-    b=$T/shots/N2/marquee-01300.png
-    check "frames 800 and 1300 ms: the text stands still (below the progress line)" "$(px "$a" diff "$b" 206 3 1840 23)" 0 || f=1
+    a=$T/shots/N2/marquee-01300.png
+    b=$T/shots/N2/marquee-01800.png
+    check "frames 1300 and 1800 ms: the text stands still (below the progress line)" "$(px "$a" diff "$b" 206 3 1840 23)" 0 || f=1
     more "frames 2500 and 3000 ms: the text moves" "$(px "$T/shots/N2/marquee-02500.png" diff "$T/shots/N2/marquee-03000.png" 206 3 1840 23)" 100 || f=1
     sleep 2.2
     bus_stop
@@ -845,7 +870,7 @@ case_N4() {
     bus_start N4
     ipc debug slow 10
     echo "  frame series of the entry (slow motion x10)"
-    strip_frames N4 enter 10 0 80 160 240 320 400 480 560 700 -- notify-send -u critical -a battery-appindicator "Battery low" "5% remaining"
+    strip_frames N4 enter 10 0 160 320 480 640 800 900 1050 -- notify-send -u critical -a battery-appindicator "Battery low" "5% remaining"
     ipc debug slow 1
     id=$(notif "d['current']['id']")
     s=$(shot N4 visible)
@@ -1621,14 +1646,14 @@ case_N7() {
 
     echo "  frame series: the card rises after the wipe, falls before the leave"
     frames N7/card "0 run notify-send -a screenshot -i $png -t 10000 'Screenshot saved' 'demo-screenshot.png. Right click to discard'" \
-        "0 shot" "640 shot" "840 shot" "1100 shot" "1500 run quickshell ipc -p $REPO call notify dismiss" \
-        "1500 shot" "1700 shot" "1900 shot" "2100 shot" "2400 shot" "2800 shot"
+        "0 shot" "640 shot" "900 shot" "1300 shot" "1700 shot" "2100 run quickshell ipc -p $REPO call notify dismiss" \
+        "2100 shot" "2400 shot" "2700 shot" "3000 shot" "3400 shot" "3900 shot"
     echo "  frames: $FD/sheet.png ($(frame_times))"
-    check "640 ms: wipe still running, no card" "$(px "$FD/t0640.png" color $((x + 50)) 36)" "$CLIENT" || f=1
-    check "1100 ms: card up" "$(px "$FD/t1100.png" color $((x + 1)) 1)" "$(palette base01)" || f=1
-    check "1500 ms: card still up" "$(px "$FD/t1500.png" color $((x + 1)) 1)" "$(palette base01)" || f=1
-    check "1900 ms: card down" "$(px "$FD/t1900.png" color $((x + 50)) 10)" "$CLIENT" || f=1
-    check "1900 ms: the note still open while the card is down" "$(px "$FD/t1900.png" color 1300 84)" "$(palette base01)" || f=1
+    check "900 ms: wipe still running, no card" "$(px "$FD/t0900.png" color $((x + 50)) 36)" "$CLIENT" || f=1
+    check "1700 ms: card up" "$(px "$FD/t1700.png" color $((x + 1)) 1)" "$(palette base01)" || f=1
+    check "2100 ms: card still up" "$(px "$FD/t2100.png" color $((x + 1)) 1)" "$(palette base01)" || f=1
+    check "2700 ms: card down" "$(px "$FD/t2700.png" color $((x + 50)) 10)" "$CLIENT" || f=1
+    check "2700 ms: the note still open while the card is down" "$(px "$FD/t2700.png" color 1300 84)" "$(palette base01)" || f=1
     wait_unmapped
     reset_notifs
     return $f
@@ -1794,6 +1819,26 @@ case_CL() {
     wait "$p" || true
     check "notify-send printed the default action" "$(sed -n 2p "$out")" default || f=1
     check "closed with reason 2" "$(reason "$id" "Click check")" 2 || f=1
+    # After M8: helpers/activation-token.py emits ActivationToken first.
+    read -r v a <<< "$("$REPO/tests/buslog.py" "$BUSLOG" token "$id")"
+    check "ActivationToken for the same id before ActionInvoked" "$v" first || f=1
+    echo "  info  ActivationToken to ActionInvoked: ${a:-?} ms; $(n quickshell log -p "$REPO" 2>/dev/null | grep -o "activation token .* for $id" | tail -n 1)"
+    wait_unmapped
+
+    echo "  a failing activation helper: the action goes out anyway"
+    ipc debug tokenHelper /nonexistent/activation-token.py
+    out=$T/logs/CL-fallback.out
+    n notify-send -p -A default=Open "Click fallback" "the helper fails, the action still runs" > "$out" 2>&1 &
+    p=$!
+    sleep 1
+    id=$(notif "d['current']['id']")
+    click 1000 $MID
+    park
+    wait "$p" || true
+    ipc debug tokenHelper ""
+    check "fallback: notify-send printed the default action" "$(sed -n 2p "$out")" default || f=1
+    check "fallback: no ActivationToken" "$("$REPO/tests/buslog.py" "$BUSLOG" token "$id")" missing || f=1
+    check "fallback: closed with reason 2" "$(reason "$id" "Click fallback")" 2 || f=1
     wait_unmapped
 
     echo "  right click on a note with a default action"
@@ -1878,6 +1923,42 @@ case_SC() {
     check "ActionInvoked discard on the bus" "$("$REPO/tests/buslog.py" "$BUSLOG" | grep -c "key='discard'")" 1 || f=1
     closed_check "timed-out screenshot note" "$id" "Screenshot saved" 1 10.0 || f=1
     reset_notifs
+    return $f
+}
+
+# The only output goes away and comes back, as at a lid close or a suspend
+# (after M8). Quickshell's I3.workspaces kept a pointer to the I3Monitor of
+# the removed output: the next workspace event crashed the live bar five
+# times and hung it once (PLAN.md section 8, M8 findings). Sway.qml now
+# reads the workspaces with swaymsg.
+case_LID() {
+    local f=0 pid i log samples avg
+    prepare
+    reset_notifs
+    # HEADLESS-1 alone: with another output, sway moves the workspaces there
+    # and keeps them there.
+    scene unplug
+    sleep 0.5
+    pid=$(ps -eo pid=,args= | awk -v want="quickshell -p $REPO" '{ p = $1; $1 = ""; sub(/^ /, ""); if ($0 == want) print p }')
+    for i in 1 2 3; do
+        n swaymsg -q output HEADLESS-1 disable; sleep 1.5
+        n swaymsg -q output HEADLESS-1 enable; sleep 2
+    done
+    check "same bar process after three disable and enable cycles" "$(ps -o pid= -p "$pid" | tr -d ' ')" "$pid" || return 1
+    check "bar back: workspace height on HEADLESS-1 (exclusive zone)" "$(ws_height)" 1176 || f=1
+    check "workspaces on the bar" "$(state "$(bar1)['workspaces']")" "['1', '2', '3', '4:demo']" || f=1
+    check "focused output" "$(state "d['focusedOutput']")" HEADLESS-1 || f=1
+    log=$T/logs/LID-cpu.log
+    top -b -n 4 -d 1 -p "$pid" > "$log"
+    samples=$(awk -v pid="$pid" '$1 == pid { print $9 }' "$log" | tail -n 3 | tr '\n' ' ')
+    avg=$(python3 -c "import sys; v = [float(x.replace(',', '.')) for x in sys.argv[1].split()]; print(f'{sum(v) / len(v):.2f}')" "$samples")
+    echo "  top samples (% CPU): $samples-> average $avg"
+    check "idle CPU near 0 % afterwards (no spin)" "$(python3 -c "print($avg < 1.0)")" True || f=1
+    send "Lid check" "a note after the output came back" > /dev/null
+    sleep 1.5
+    check "a note shows on HEADLESS-1" "$(notif "(d['current']['summary'], d['note']['output'])")" "('Lid check', 'HEADLESS-1')" || f=1
+    reset_notifs
+    wait_unmapped
     return $f
 }
 
