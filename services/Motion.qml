@@ -66,12 +66,7 @@ Singleton {
     readonly property int themeFade: 300
     readonly property int themeFadeEasing: Easing.InOutQuad
 
-    // Leading edge halo (shaders/wipe.frag): peak opacity next to the
-    // 2 px line, and the Gaussian's sigma in logical px.
-    readonly property real edgeHalo: 0.55
-    readonly property real edgeRadius: 3
-
-    // Critical: the leading-edge glow pulses between two opacities.
+    // Critical: the leading-edge line pulses between two opacities.
     readonly property int pulsePeriod: 1600 * slow
     readonly property real pulseLow: 0.4
     readonly property real pulseHigh: 1.0
