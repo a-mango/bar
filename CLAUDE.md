@@ -16,9 +16,8 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - `make test`: `node --test tests/*.test.mjs` (unit tests for `services/Rules.js` and `services/Markup.js`)
 - `tests/strip-frames.py <dir> <label> <slow> <ms...> [-- command]`: frame series of the bar strip through grim, from the host. Pair it with `call debug slow <factor>`, and reset the factor to 1 afterwards.
 - `tests/clip.sh <round> [scene...]`: review clips through wf-recorder (lossless, bottom 96 px of HEADLESS-1) into `.test/clips/<round>/`, one per scene plus `all.mp4`. `tests/clip-ab.py OUT.mp4 A.mp4 B.mp4 ...` stacks clips aligned on the first frame with the note edge. Play at native size: `mpv --loop --video-unscaled=yes`.
-- `make shaders`: compile `shaders/*.frag` to `.qsb` with `/usr/lib64/qt6/bin/qsb`
 - `make lint`: `qmllint` on all QML files through `tests/lint.sh` (needs `qt6-qtdeclarative-devel`)
-- `make install`: build the live copy in `~/.local/share/bar` from the tagged, committed HEAD (shaders, `live` marker), then `systemctl --user restart bar.service`. Only with the owner's go-ahead. `DEST=/abs/path` installs elsewhere (dry run in a `bare` nested session).
+- `make install`: build the live copy in `~/.local/share/bar` from the tagged, committed HEAD (with the `live` marker), then `systemctl --user restart bar.service`. Only with the owner's go-ahead. `DEST=/abs/path` installs elsewhere (dry run in a `bare` nested session).
 
 ## Rules
 - Quickshell API: check every type, property, signal and enum in `/usr/lib64/qt6/qml/Quickshell/**/*.qmltypes` before using it, never from memory. Fedora ships snapshot `0.2.1^git20260209.dacfa9d`, and the online docs track a newer version.
@@ -87,7 +86,6 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - sway does not slide popups of layer surfaces back onto the output. Anchor popups near an edge so that they grow away from it.
 - The nested session has `tests/bin` first on `PATH`: `darkman get` is the stub, which answers from `.test/darkman-mode` or fails.
 - grim reads back the whole 3840x2400 output for every shot, even with `-g`. That blocks the compositor (and Quickshell) for about 80 ms. Use `tests/frames.py` for anything timed.
-- A changed `.qsb` needs a Quickshell restart (`make nested-stop`, `make nested`): after a hot reload, Qt kept the old shader for the same URL, and with a changed uniform block the halo vanished. `*.qsb` is gitignored, so run `make shaders` after a checkout.
 - wf-recorder without `-D` exits only after the next damaged frame, up to a minute on an idle bar. Clips also need lossless RGB (`libx264rgb`, crf 0): 4:2:0 turns the 2 px edge gray, and yuv444p shifts colors through the range conversion.
 - A `PopupWindow` with `grabFocus` ignores clicks on bar's own surfaces (same client): the bar closes tray menus itself. Watch presses over the bar with a `PointHandler`: a `TapHandler` on an item on top swallowed them.
 - After an edit to a singleton file alone (seen with `services/Motion.qml`), the hot reload kept the old values. Touch `shell.qml` as well.

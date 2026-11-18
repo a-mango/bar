@@ -123,8 +123,6 @@ bar/
   themes/
     base16-default-dark.css
     base16-default-light.css
-  shaders/
-    wipe.frag             compiled to wipe.frag.qsb by make shaders
   tests/
     nested.sh             headless sway on a private bus, running quickshell on this tree
     sway-nested.conf      minimal sway config for the nested session
@@ -430,7 +428,7 @@ Status (2026-11-18, branch `m8-cutover`, not merged until the day of use is over
 
 - `v1.1` (tag on `a434677`, code as at `5045c69`): the whole matrix passed, 37 cases with exit status 0 in 10 min 42 s (`matrix-v1.1.log`). Installed and restarted: `debug state` gives `live` v1.1, 9 items, 6 drawn (solaar, udiskie and wayvnc-tray `Passive`), bar serial 1 at 24 px (`.test/shots/m8/live-tray-v1.1.png`).
 
-- `v1.2` (tag on `11306bf`): after a day-of-use remark from the owner, the note's leading edge is a plain 2 px line (`base07`, `Theme.onCritical` on a critical, whose pulse now moves the line's opacity) instead of the `base0D` line with a shader halo, and every note transition is 1.5 times slower (x1.5 chosen over x1.25 on `.test/clips/ab/r4-slower-*.mp4`; edge stills `.test/shots/r4/edge-sheet.png`). Matrix: 35 of 37 cases passed in the full run; HO and N16 failed right after a host suspend from 12:29:00 to 12:33:09, and both pass on a re-run (`.test/logs/v1.2/matrix.log`, `matrix-rerun.log`). Installed and restarted: `debug state` gives `live` v1.2 and `watchFiles` false, both names on the new PID, 10 tray items before and after, bar serial 1 at 24 px, workspace height 1176. `shaders/wipe.frag` is unused since v1.2 and still installed.
+- `v1.2` (tag on `11306bf`): after a day-of-use remark from the owner, the note's leading edge is a plain 2 px line (`base07`, `Theme.onCritical` on a critical, whose pulse now moves the line's opacity) instead of the `base0D` line with a shader halo, and every note transition is 1.5 times slower (x1.5 chosen over x1.25 on `.test/clips/ab/r4-slower-*.mp4`; edge stills `.test/shots/r4/edge-sheet.png`). Matrix: 35 of 37 cases passed in the full run; HO and N16 failed right after a host suspend from 12:29:00 to 12:33:09, and both pass on a re-run (`.test/logs/v1.2/matrix.log`, `matrix-rerun.log`). Installed and restarted: `debug state` gives `live` v1.2 and `watchFiles` false, both names on the new PID, 10 tray items before and after, bar serial 1 at 24 px, workspace height 1176. The unused `shaders/wipe.frag` and the `make shaders` step left the tree after v1.2. The live copy keeps the stale files until the next install, where `rsync --delete` removes them.
 
 Live checks done: both names owned, tray by process, restart. Still to do with the owner: one tray menu opened and closed; workspace click, `$mod+r`, `present:` mode; clock toggle and calendar; volume, brightness and microphone keys, also over fullscreen; screenshot and right click; `$mod+Shift+d` twice, `$mod+n`, `$mod+Ctrl+n`, a critical; a note during fullscreen; `darkman toggle` twice; logout and login.
 
@@ -440,7 +438,7 @@ The live instance runs from a copy, with file watching off. Quickshell reloads w
 
 Cutover steps:
 
-1. `make install` runs `make shaders` first (`*.qsb` is gitignored, and without `shaders/wipe.frag.qsb` the note edge has no halo), then copies the tagged tree to `~/.local/share/bar` (`rsync`, excluding `.git`, `.test`, `docs` and `tests`) and marks the copy as live, so that it sets `Quickshell.watchFiles` to false.
+1. `make install` copies the tagged tree to `~/.local/share/bar` (`rsync`, excluding `.git`, `.test`, `docs` and `tests`) and marks the copy as live, so that it sets `Quickshell.watchFiles` to false.
 2. Install `packaging/bar.service` to `~/.config/systemd/user/`:
    - `[Unit]`: `PartOf=graphical-session.target`, `After=graphical-session.target`, `StartLimitIntervalSec=60`, `StartLimitBurst=5`
    - `[Service]`: `Type=dbus`, `BusName=org.freedesktop.Notifications`, `ExecCondition=/bin/sh -c '[ -n "$WAYLAND_DISPLAY" ]'`, `Environment=QS_ICON_THEME=AdwaitaLegacy` (the tray icons, M8 findings), `ExecStart=/usr/bin/quickshell -p %h/.local/share/bar --no-duplicate`, `Restart=on-failure`, `RestartSec=1`
