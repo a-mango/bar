@@ -73,7 +73,7 @@ The bar reproduces `docs/reference/waybar/config.jsonc` and `style.css`. The `ma
   - Focused: `base07` background, `base00` text.
   - Urgent: `base08` background, `Theme.onCritical` text (`#f8f8f8` in both modes, 5.4:1). waybar's `base05` gave 4.0:1 in dark mode and 2.1:1 in light mode (M7).
   - Hover: `base03` background.
-- Buttons have 5 px horizontal padding around a content box of at least 16 px, and no rounded corners. Labels are bold, as the GTK theme draws waybar's buttons. A left click activates the workspace (`I3Workspace.activate()`). Scrolling does nothing (waybar's `disable-scroll`).
+- Buttons have 5 px horizontal padding around a content box of at least 16 px, and no rounded corners. Labels are bold, as the GTK theme draws waybar's buttons. A left click activates the workspace (`I3Workspace.activate()`). The wheel steps to the previous (up or left) or next (down or right) workspace of that output, from the one it shows, and wraps around (after the M8 cutover, the owner's request; until then nothing, as waybar's `disable-scroll`). A wheel notch is one step. Touchpad and TrackPoint scrolling count 60 px per step, and what is left over after a 400 ms pause is dropped, so a short swipe moves one workspace, not several. A step that follows another within 300 ms goes on from the workspace the last one asked for (Q27 in `PLAN.md` section 8).
 - The sway mode follows the workspaces with a 6 px gap (waybar's 4 px margin plus 2 px module spacing). It is hidden in `default`. Other modes show their name in italics, `base00` on `base04`, with 7 px padding (9.0:1 dark, 6.7:1 light; waybar's `base07` gave 1.9 and 2.5:1, M7). Source: an `I3IpcListener` subscribed to `mode` events, with the initial mode from `swaymsg -t get_binding_state` (spike S10).
 - The mode name always shows in full while no note is visible. The `present:` mode doubles as a cheat sheet (`~/.config/sway/config.d/60-bindings-present.conf`), and waybar cuts it short today. The text only elides on the right if a note would otherwise get less than 600 px. The 600 px are the whole center span of section 4 (M4 choice, question Q14 in `PLAN.md` section 8). The label elides from the first frame of the note's entry to the last frame of its leave. A name that already runs under the clock when idle keeps the bar's clock box over it, empty while the note shows (question Q13).
 
@@ -280,7 +280,7 @@ Bar:
 
 | # | Case | Expected |
 |---|---|---|
-| B1 | workspaces 1, 2 and 3 on HEADLESS-1, focus on 2 | colors per section 3; a click on 3 focuses it |
+| B1 | workspaces 1, 2 and 3 on HEADLESS-1, focus on 2 | colors per section 3; a click on 3 focuses it; wheel notches and touchpad swipes step through the workspaces and wrap around |
 | B2 | a test client with `urgent enable` on a hidden workspace | that workspace button turns `base08` |
 | B3 | `swaymsg mode resize`, then a mode with a name as long as the `present:` cheat sheet | italic label on `base04`, long name shown in full |
 | B4 | click on the clock, hover on the clock | seconds shown and ticking, calendar popup with today highlighted |

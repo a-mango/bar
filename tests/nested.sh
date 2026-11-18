@@ -60,7 +60,7 @@ cmd_session() {
     exec env -i "${vars[@]}" \
         WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 \
         BAR_VARIANT="$variant" \
-        sway -c "$REPO/tests/sway-nested.conf"
+        sway ${BAR_SWAY_DEBUG:+-d} -c "$REPO/tests/sway-nested.conf"
 }
 
 # Step 2 (exec'd by sway): publish the session environment, start the client.

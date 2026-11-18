@@ -114,6 +114,24 @@ case_B1() {
     click 65 $MID; sleep 0.3
     check "focused workspace after a click on 3" "$(focused_ws)" 3 || f=1
     n swaymsg -q workspace 2
+    # The wheel steps through this output's workspaces and wraps around
+    # (after M8). Up first, so that the urgent 3 is never focused.
+    echo "  wheel and touchpad over the workspaces (tests/wheel.py)"
+    scene hover 13 $MID; sleep 0.2
+    n "$REPO/tests/wheel.py" notch -1; sleep 0.3
+    check "one notch up from 2" "$(focused_ws)" 1 || f=1
+    n "$REPO/tests/wheel.py" notch 1; sleep 0.3
+    check "one notch down, back" "$(focused_ws)" 2 || f=1
+    n "$REPO/tests/wheel.py" notch -2; sleep 0.3
+    check "two quick notches up from 2: 1, then wraps to the last" "$(focused_ws)" 4:demo || f=1
+    n "$REPO/tests/wheel.py" notch 2; sleep 0.3
+    check "two notches down: wraps to 1, then 2" "$(focused_ws)" 2 || f=1
+    n "$REPO/tests/wheel.py" finger -4 10; sleep 0.5
+    check "a 40 px touchpad swipe: no step" "$(focused_ws)" 2 || f=1
+    n "$REPO/tests/wheel.py" finger -6 10; sleep 0.3
+    check "a 60 px touchpad swipe up: one step" "$(focused_ws)" 1 || f=1
+    n swaymsg -q workspace 2
+    scene hover 960 600
     return $f
 }
 

@@ -130,6 +130,7 @@ bar/
     matrix.sh             the SPEC.md test matrix
     scene.sh              puts a nested session into a known state (workspaces, mode, tray)
     vpointer.py           virtual pointer, so that seat cursor commands reach clients
+    wheel.py              wheel notches and touchpad swipes through a short-lived virtual pointer (after M8)
     pixel.py, rows.py, pixdiff.py   screenshot checks in logical px
     frames.py             frame series: commands and region shots on a schedule (M3)
     strip-frames.py       frame series of the bar strip with slow motion (grim grabs, M4)
@@ -746,6 +747,7 @@ Found on the live desktop on 2026-11-18 (logs in `.test/logs/m8/`, shots in `.te
 - **Named icons in the tests.** `tests/fake-sni.py` sent a pixmap only, so no test loaded a theme icon. `FAKE_SNI_ICON=<name>` makes it send a name as well.
 - **Flatpak tray items.** Teams for Linux and the artcraft launcher register through `xdg-dbus-proxy`: the item's bus name and PID are the proxy's, and `flatpak ps` maps them back to the app. Both registered again at the waybar to bar switch.
 - **Clock after a suspend.** In the v1.2 matrix run, 10 s after the host resumed from a 4 min suspend, the nested bar's clock still showed the minute of the suspend (12:29 at 12:33:19), and the overlay's clock, enabled after the resume, showed 12:33: HO failed on the minute digits. The bar's `SystemClock` (minute precision) caught up later. Likely the same on the live bar after a lid close: the pre-suspend time for up to a minute after resume. Not fixed.
+- **Workspace scroll.** The owner missed the wheel on the workspace buttons, which SPEC section 3 had left out after waybar's `disable-scroll`. `swaymsg seat seat0 cursor press button4` reaches Qt as `angleDelta` 1, not 120: sway passes a discrete step of 1 where wlroots now expects `value120`. `tests/wheel.py` sends real notches (`axis_discrete`, 120 in Qt) and touchpad swipes (`axis` with source finger: Qt gives `pixelDelta` in px and `angleDelta` 12 times that), and matrix B1 checks both, the wrap-around and two quick notches.
 - **mako at removal.** `sudo dnf remove mako` also stopped the running mako, so nobody owned `org.freedesktop.Notifications` until bar started, about a minute later.
 
 ### Open questions for the owner
@@ -778,3 +780,4 @@ These are questions about how bar looks or behaves, so M0 does not settle them. 
 - **Q24, the focus moves while a note shows and others wait.** Built as SPEC section 11 reads: the next note shows on the output focused when it takes the span. If the focus moved, the old note leaves on its output and the next one enters on the focused output, instead of a roll in the open span. A note pushed back by a critical shows again on the output focused then, and an OSD of another app goes to the focused output (only same-tag updates stay put). The other choice is to keep the whole queue on the output where the span is open until it closes.
 - **Q25, outputs after a reload.** Built: the core does not keep the output across a reload, so a survivor shows on the output focused at the reload. With the focus on another output, a note jumps there at the reload. The other choice is to keep the output in the `PersistentProperties`.
 - **Q26, what a theme transition looks like.** Answered 2026-11-17 (M7): a 300 ms crossfade of every color, chosen over instant and 600 ms from an A/B clip. Original question: built: `theme set` swaps every color at once, in one frame for the bar and the overlay, also while an OSD or a note shows (case TH). That follows SPEC section 10 ("only changes the bound color properties") and the M6 check (no unmap). The milestone's name could also mean an animated crossfade between the palettes, for example 300 ms on every color through `Motion`. That would be new behavior, for M7 if wanted.
+- **Q27, wheel on the workspaces.** Built after the M8 cutover at the owner's request (SPEC section 3): one step per notch, 60 px per step for touchpad and TrackPoint, wrapping around at both ends (waybar's default without `disable-scroll`). The other choices: no wrap-around (swaybar and i3bar stop at the ends), or another touchpad distance.

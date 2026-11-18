@@ -11,6 +11,8 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - `make reference`: nested session running waybar with `docs/reference/waybar/`, screenshot of its bar (visual target)
 - `make matrix`: run the `docs/SPEC.md` test matrix against the nested session (about 10 minutes). `make matrix CASE=N5` runs one case, `CASE="N13 N18"` several.
 - `make shots`: screenshot the nested output into `.test/shots/`
+- `BAR_SWAY_DEBUG=1 make nested`: the nested sway logs at debug level into `.test/logs/sway.log`
+- `tests/nested.sh run tests/wheel.py notch <n>` (negative: up) or `finger <px> <frames>`: wheel notches or a touchpad swipe at the cursor position
 - `tests/nested.sh run tests/frames.py <dir> "<ms> run <command>" "<ms> shot" ...`: frame series. Commands and region shots on a schedule, each shot stamped with its frame time, plus `<dir>/sheet.png` and `frames.json`
 - `make log`: follow the nested Quickshell log
 - `make test`: `node --test tests/*.test.mjs` (unit tests for `services/Rules.js` and `services/Markup.js`)
@@ -76,6 +78,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - The I3 event listener also delivers the reply to `SUBSCRIBE` as an event of type `subscribe`.
 - `pkill -f <pattern>` matches the shell that runs it when the pattern is on its own command line. Kill by PID.
 - A QML type named `State` loses to QtQuick's `State`. Do not name a singleton after a QtQuick type.
+- `swaymsg seat seat0 cursor press button4` reaches Qt as `angleDelta` 1, not one notch (120). Use `tests/wheel.py` for anything that counts notches.
 - `swaymsg` joins its arguments into one command string: quote names with spaces inside the argument (`mode "\"$name\""`), and pass `--` before commands that contain `--custom`.
 - sway may place a new output (`create_output`) first and move HEADLESS-1. `tests/scene.sh focus-other` and `plug` put both outputs back at x 0 and 1920.
 - sway numbers headless outputs on from the last one created: after an unplug, `create_output` gives HEADLESS-3, then HEADLESS-4. Get the name from `tests/scene.sh other`, never hard-code HEADLESS-2. `tests/scene.sh unplug` removes it.
