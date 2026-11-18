@@ -1926,6 +1926,42 @@ case_SC() {
     return $f
 }
 
+# The only output goes away and comes back, as at a lid close or a suspend
+# (after M8). Quickshell's I3.workspaces kept a pointer to the I3Monitor of
+# the removed output: the next workspace event crashed the live bar five
+# times and hung it once (PLAN.md section 8, M8 findings). Sway.qml now
+# reads the workspaces with swaymsg.
+case_LID() {
+    local f=0 pid i log samples avg
+    prepare
+    reset_notifs
+    # HEADLESS-1 alone: with another output, sway moves the workspaces there
+    # and keeps them there.
+    scene unplug
+    sleep 0.5
+    pid=$(ps -eo pid=,args= | awk -v want="quickshell -p $REPO" '{ p = $1; $1 = ""; sub(/^ /, ""); if ($0 == want) print p }')
+    for i in 1 2 3; do
+        n swaymsg -q output HEADLESS-1 disable; sleep 1.5
+        n swaymsg -q output HEADLESS-1 enable; sleep 2
+    done
+    check "same bar process after three disable and enable cycles" "$(ps -o pid= -p "$pid" | tr -d ' ')" "$pid" || return 1
+    check "bar back: workspace height on HEADLESS-1 (exclusive zone)" "$(ws_height)" 1176 || f=1
+    check "workspaces on the bar" "$(state "$(bar1)['workspaces']")" "['1', '2', '3', '4:demo']" || f=1
+    check "focused output" "$(state "d['focusedOutput']")" HEADLESS-1 || f=1
+    log=$T/logs/LID-cpu.log
+    top -b -n 4 -d 1 -p "$pid" > "$log"
+    samples=$(awk -v pid="$pid" '$1 == pid { print $9 }' "$log" | tail -n 3 | tr '\n' ' ')
+    avg=$(python3 -c "import sys; v = [float(x.replace(',', '.')) for x in sys.argv[1].split()]; print(f'{sum(v) / len(v):.2f}')" "$samples")
+    echo "  top samples (% CPU): $samples-> average $avg"
+    check "idle CPU near 0 % afterwards (no spin)" "$(python3 -c "print($avg < 1.0)")" True || f=1
+    send "Lid check" "a note after the output came back" > /dev/null
+    sleep 1.5
+    check "a note shows on HEADLESS-1" "$(notif "(d['current']['summary'], d['note']['output'])")" "('Lid check', 'HEADLESS-1')" || f=1
+    reset_notifs
+    wait_unmapped
+    return $f
+}
+
 # Runs last when the whole matrix runs: nothing may stay tracked.
 case_END() {
     local f=0

@@ -46,7 +46,7 @@ Row {
     // The workspace the last step asked for. sway reports the switch a few
     // ms later: a step that follows within 300 ms goes on from there, so
     // fast scrolling does not lose steps.
-    property var stepTarget: null
+    property string stepTarget: ""
     property real stepAt: 0
 
     function step(steps: int): void {
@@ -54,14 +54,14 @@ Row {
         if (list.length < 2)
             return;
         const now = Date.now();
-        let from = now - stepAt < 300 ? list.indexOf(stepTarget) : -1;
+        let from = now - stepAt < 300 ? list.findIndex(w => w.name === stepTarget) : -1;
         // Else from the workspace shown on this output.
         if (from < 0)
-            from = Math.max(0, list.findIndex(w => w.monitor?.activeWorkspace === w));
+            from = Math.max(0, list.findIndex(w => w.visible));
         const to = ((from + steps) % list.length + list.length) % list.length;
-        stepTarget = list[to];
+        stepTarget = list[to].name;
         stepAt = now;
-        stepTarget.activate();
+        Sway.activate(stepTarget);
     }
 
     Repeater {
@@ -74,13 +74,13 @@ Row {
 
             required property var modelData
             readonly property bool focusedHere: modelData.focused
-            readonly property bool shownHere: modelData.monitor?.activeWorkspace === modelData
+            readonly property bool shownHere: modelData.visible
 
             // waybar: 5 px padding on both sides of a content box of at least 16 px.
             width: Math.max(16, label.implicitWidth) + 10
             height: Theme.barHeight
             hoverEnabled: true
-            onClicked: modelData.activate()
+            onClicked: Sway.activate(button.modelData.name)
             onWheel: event => root.wheel(event)
 
             Rectangle {

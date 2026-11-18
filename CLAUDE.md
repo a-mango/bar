@@ -78,6 +78,7 @@ Spec: `docs/SPEC.md` · Plan and milestones: `docs/PLAN.md` · Configs being rep
 - The I3 event listener also delivers the reply to `SUBSCRIBE` as an event of type `subscribe`.
 - `pkill -f <pattern>` matches the shell that runs it when the pattern is on its own command line. Kill by PID.
 - A QML type named `State` loses to QtQuick's `State`. Do not name a singleton after a QtQuick type.
+- Never use Quickshell's `I3.workspaces`, `I3.focusedMonitor`, `I3Workspace` or `I3Monitor`: after an output goes away (lid close, suspend), the next workspace event reads a freed `I3Monitor` and crashes or hangs bar. `services/Sway.qml` reads `swaymsg -t get_workspaces` on `I3IpcListener` events, which are safe. Matrix case LID covers it.
 - `swaymsg seat seat0 cursor press button4` reaches Qt as `angleDelta` 1, not one notch (120). Use `tests/wheel.py` for anything that counts notches.
 - kitty in the nested session raises its window on a notification click only with a held keyboard (`wtype -s 3600000`): a kitty that never had keyboard focus never asks. Test activation with `WAYLAND_DEBUG=1 kitty --config NONE`.
 - `helpers/activation-token.py` emits `ActivationToken` from its own bus connection. kitty accepts it, clients that match the signal by sender (GLib) do not.

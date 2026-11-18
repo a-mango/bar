@@ -11,17 +11,74 @@ Singleton {
     id: root
 
     property string mode: "default"
+
+    // ---- workspaces ----
+
+    // From `swaymsg -t get_workspaces`, read again on every workspace and
+    // output event: plain objects {name, num, focused, visible, urgent,
+    // output}. Not Quickshell's I3.workspaces: its workspace objects keep a
+    // pointer to the I3Monitor of an output that went away, and the next
+    // workspace event reads it. Disabling and enabling the only output (a
+    // lid close, a suspend) crashed or hung the live bar six times on
+    // 2026-11-18 (PLAN.md section 8, M8 findings). The I3IpcListener alone
+    // is safe.
+    property var workspaces: []
     // The output that has the focus, "" until sway has told. Notifications
     // show there (Notifs.targetOutput()).
-    readonly property string focusedOutput: I3.focusedMonitor?.name ?? ""
+    readonly property string focusedOutput: workspaces.find(w => w.focused)?.output ?? ""
 
     // The workspaces of one output, sorted by number, then by name.
     function workspacesOn(output: string): var {
-        return I3.workspaces.values.filter(w => w.monitor && w.monitor.name === output).sort((a, b) => {
-            const na = a.number < 0 ? Infinity : a.number;
-            const nb = b.number < 0 ? Infinity : b.number;
+        return workspaces.filter(w => w.output === output).sort((a, b) => {
+            const na = a.num < 0 ? Infinity : a.num;
+            const nb = b.num < 0 ? Infinity : b.num;
             return na !== nb ? na - nb : a.name.localeCompare(b.name);
         });
+    }
+
+    // `swaymsg` joins its arguments into one command: quote the name.
+    function activate(name: string): void {
+        Quickshell.execDetached(["swaymsg", "workspace \"" + name.replace(/["\\]/g, "\\$&") + "\""]);
+    }
+
+    // One swaymsg at a time, and one more run if an event came meanwhile.
+    property bool workspacesDirty: false
+    function readWorkspaces(): void {
+        if (workspaceList.running)
+            workspacesDirty = true;
+        else
+            workspaceList.running = true;
+    }
+
+    Process {
+        id: workspaceList
+        running: true
+        command: ["swaymsg", "-t", "get_workspaces"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const next = JSON.parse(text).map(w => ({
+                                name: w.name,
+                                num: w.num,
+                                focused: w.focused,
+                                visible: w.visible,
+                                urgent: w.urgent,
+                                output: w.output
+                            }));
+                    // New objects rebuild the buttons: only when something changed.
+                    if (JSON.stringify(next) !== JSON.stringify(root.workspaces))
+                        root.workspaces = next;
+                } catch (error) {
+                    console.warn("sway: could not read the workspaces", error);
+                }
+            }
+        }
+        onRunningChanged: {
+            if (!running && root.workspacesDirty) {
+                root.workspacesDirty = false;
+                Qt.callLater(root.readWorkspaces);
+            }
+        }
     }
 
     I3IpcListener {
@@ -30,7 +87,9 @@ Singleton {
             // The reply to SUBSCRIBE also arrives here, as type "subscribe".
             if (event.type === "mode")
                 root.mode = JSON.parse(event.data).change;
-            else if (root.changesTree(event.type, event.data))
+            if (event.type === "workspace" || event.type === "output")
+                root.readWorkspaces();
+            if (root.changesTree(event.type, event.data))
                 root.readTree();
         }
     }
