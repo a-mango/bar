@@ -430,6 +430,8 @@ Status (2026-11-18, branch `m8-cutover`, not merged until the day of use is over
 
 - `v1.1` (tag on `a434677`, code as at `5045c69`): the whole matrix passed, 37 cases with exit status 0 in 10 min 42 s (`matrix-v1.1.log`). Installed and restarted: `debug state` gives `live` v1.1, 9 items, 6 drawn (solaar, udiskie and wayvnc-tray `Passive`), bar serial 1 at 24 px (`.test/shots/m8/live-tray-v1.1.png`).
 
+- `v1.2` (tag on `11306bf`): after a day-of-use remark from the owner, the note's leading edge is a plain 2 px line (`base07`, `Theme.onCritical` on a critical, whose pulse now moves the line's opacity) instead of the `base0D` line with a shader halo, and every note transition is 1.5 times slower (x1.5 chosen over x1.25 on `.test/clips/ab/r4-slower-*.mp4`; edge stills `.test/shots/r4/edge-sheet.png`). Matrix: 35 of 37 cases passed in the full run; HO and N16 failed right after a host suspend from 12:29:00 to 12:33:09, and both pass on a re-run (`.test/logs/v1.2/matrix.log`, `matrix-rerun.log`). Installed and restarted: `debug state` gives `live` v1.2 and `watchFiles` false, both names on the new PID, 10 tray items before and after, bar serial 1 at 24 px, workspace height 1176. `shaders/wipe.frag` is unused since v1.2 and still installed.
+
 Live checks done: both names owned, tray by process, restart. Still to do with the owner: one tray menu opened and closed; workspace click, `$mod+r`, `present:` mode; clock toggle and calendar; volume, brightness and microphone keys, also over fullscreen; screenshot and right click; `$mod+Shift+d` twice, `$mod+n`, `$mod+Ctrl+n`, a critical; a note during fullscreen; `darkman toggle` twice; logout and login.
 
 ## 6. Cutover and rollback
@@ -743,6 +745,7 @@ Found on the live desktop on 2026-11-18 (logs in `.test/logs/m8/`, shots in `.te
 - **Passive items.** waybar's tray hides `Passive` items unless `show-passive-items` is set (`man waybar-tray`, default false). The `#tray > .passive` dim rule in the reference `style.css` therefore never applied, and SPEC section 3 had copied it. solaar, udiskie and wayvnc-tray are `Passive` most of the time. bar now hides them and the Row closes the gap (matrix B5: one icon drawn, the leftmost slot empty, the tray start 30 px further right, and both drawn again once Active).
 - **Named icons in the tests.** `tests/fake-sni.py` sent a pixmap only, so no test loaded a theme icon. `FAKE_SNI_ICON=<name>` makes it send a name as well.
 - **Flatpak tray items.** Teams for Linux and the artcraft launcher register through `xdg-dbus-proxy`: the item's bus name and PID are the proxy's, and `flatpak ps` maps them back to the app. Both registered again at the waybar to bar switch.
+- **Clock after a suspend.** In the v1.2 matrix run, 10 s after the host resumed from a 4 min suspend, the nested bar's clock still showed the minute of the suspend (12:29 at 12:33:19), and the overlay's clock, enabled after the resume, showed 12:33: HO failed on the minute digits. The bar's `SystemClock` (minute precision) caught up later. Likely the same on the live bar after a lid close: the pre-suspend time for up to a minute after resume. Not fixed.
 - **mako at removal.** `sudo dnf remove mako` also stopped the running mako, so nobody owned `org.freedesktop.Notifications` until bar started, about a minute later.
 
 ### Open questions for the owner
