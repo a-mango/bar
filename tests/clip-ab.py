@@ -1,19 +1,28 @@
 #!/usr/bin/python3
 """Stacks review clips (tests/clip.sh) top to bottom, aligned on the first
-frame that shows the note's leading edge (base0D in the strip), for an
-A/B look at the same moment of each variant:
+frame that shows the note's leading edge, for an A/B look at the same
+moment of each variant:
 
     tests/clip-ab.py OUT.mp4 CLIP.mp4 CLIP.mp4 [...]
 
-Runs on the host (it only reads files). Edge color: dark base0D.
+Runs on the host (it only reads files). The edge is a column of one of
+the EDGES colors over the strip's height: dark base0D (the line with the
+halo, up to v1.1) or white (dark base07, Theme.onCritical).
 """
 import subprocess
 import sys
 
 from PIL import Image
 
-EDGE = (0x7C, 0xAF, 0xC2)
+EDGES = [(0x7C, 0xAF, 0xC2), (0xF8, 0xF8, 0xF8)]
 W, H = 3840, 192
+ROWS = (152, 170, 188)  # the strip, below the progress line
+SPAN = range(400, 3700, 2)  # between the workspaces (white focused button) and the tray
+
+
+def is_edge(im, x):
+    px = [im.getpixel((x, y)) for y in ROWS]
+    return px[0] == px[1] == px[2] and px[0] in EDGES
 
 
 def first_edge(path):
@@ -26,8 +35,8 @@ def first_edge(path):
     n = len(raw) // (W * H * 3)
     for i in range(n):
         im = Image.frombytes("RGB", (W, H), raw[i * W * H * 3:(i + 1) * W * H * 3])
-        if any(im.getpixel((x, 170)) == EDGE for x in range(0, W, 2)):
-            return float(times[i])
+        if any(is_edge(im, x) for x in SPAN):
+            return float(times[i].split(",")[0])  # newer ffprobe appends ","
     raise SystemExit(f"clip-ab: no edge in the first 4 s of {path}")
 
 
