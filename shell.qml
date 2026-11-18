@@ -94,6 +94,11 @@ ShellRoot {
             root.noteHold = on;
         }
 
+        // Another activation helper for a test of the fallback, "" resets.
+        function tokenHelper(path: string): void {
+            Notifs.tokenHelper = path;
+        }
+
         function noteRelease(): void {
             for (const o of overlays.instances)
                 o.releaseNote();

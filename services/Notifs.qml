@@ -543,15 +543,14 @@ Singleton {
             close(e, "dismiss");
     }
 
+    // True when the notification on display has that action: it is then
+    // invoked once the activation token is out (invokeAction()).
     function invoke(identifier: string): bool {
         for (const e of [current, osd]) {
             if (!e || !e.n)
                 continue;
-            const action = e.n.actions.find(a => a.identifier === identifier);
-            if (action) {
-                // Emits ActionInvoked, then closes with reason 2 unless the
-                // notification is resident (its timer keeps running then).
-                action.invoke();
+            if (e.n.actions.some(a => a.identifier === identifier)) {
+                invokeAction(e, identifier);
                 return true;
             }
         }
@@ -577,11 +576,86 @@ Singleton {
         const found = action && e.n ? e.n.actions.find(a => a.identifier === action) : null;
         console.info("notifs: click", button, "on", e.data.id, "->", found ? "action " + action : "dismiss");
         if (found)
-            // Emits ActionInvoked, then closes with reason 2 unless the
-            // notification is resident.
-            found.invoke();
+            invokeAction(e, action);
         else
             close(e, "dismiss");
+    }
+
+    // ---- activation token (after M8, SPEC section 5) ----
+
+    // An action goes to the sender after an ActivationToken signal, so that
+    // a terminal like kitty can raise its window (sway marks it urgent).
+    // helpers/activation-token.py asks the compositor for the token and
+    // emits the signal, then bar invokes the action: when the helper has
+    // exited, or after 400 ms at most. One invocation at a time: a second
+    // click on the same notification meanwhile does nothing, an action of
+    // another one while the helper still runs goes out without a token.
+    property var invoking: null // {e, id} while the helper runs
+    readonly property int tokenWait: 400
+    // Debug (`debug tokenHelper <path>`): another helper, "" for the real one.
+    property string tokenHelper: ""
+
+    function invokeAction(e: var, identifier: string): void {
+        if (invoking && invoking.e === e)
+            return;
+        // A helper still runs (for another notification, or one that timed
+        // out): its exit must not release this action early.
+        if (invoking || tokenProc.running) {
+            console.info("notifs: activation helper busy, action", identifier, "of", e.data.id, "goes out without a token");
+            invokeNow(e, identifier);
+            return;
+        }
+        invoking = {
+            e: e,
+            id: identifier,
+            t: Date.now()
+        };
+        tokenProc.command = ["python3", "-I", tokenHelper || Quickshell.shellPath("helpers/activation-token.py"), String(e.data.id)];
+        tokenProc.running = true;
+        tokenTimer.restart();
+    }
+
+    // The helper exited or took too long. The entry is held, never e.n:
+    // the notification may have closed during the wait.
+    function finishInvoke(how: string): void {
+        tokenTimer.stop();
+        const p = invoking;
+        if (!p)
+            return;
+        invoking = null;
+        console.info("notifs: activation token", how, "after", Date.now() - p.t, "ms for", p.e.data.id);
+        invokeNow(p.e, p.id);
+    }
+
+    function invokeNow(e: var, identifier: string): void {
+        const action = e.n && !e.closed ? e.n.actions.find(a => a.identifier === identifier) : null;
+        if (!action) {
+            console.info("notifs: notification", e.data.id, "closed before its action", identifier);
+            return;
+        }
+        // Emits ActionInvoked, then closes with reason 2 unless the
+        // notification is resident (its timer keeps running then).
+        action.invoke();
+    }
+
+    Process {
+        id: tokenProc
+        stderr: StdioCollector {
+            onStreamFinished: {
+                if (text.trim() !== "")
+                    console.info(text.trim());
+            }
+        }
+        onRunningChanged: {
+            if (!running)
+                root.finishInvoke("sent or failed");
+        }
+    }
+
+    Timer {
+        id: tokenTimer
+        interval: root.tokenWait
+        onTriggered: root.finishInvoke("timed out")
     }
 
     // The pointer entered (on) or left the note of the view `key`.

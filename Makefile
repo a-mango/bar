@@ -40,7 +40,7 @@ install:
 	@git describe --tags --exact-match HEAD > /dev/null 2>&1 || { echo "make install: tag HEAD first" >&2; exit 1; }
 	@case "$(DEST)" in /*) ;; *) echo "make install: DEST must be absolute" >&2; exit 1 ;; esac
 	rm -rf $(STAGE) && mkdir -p $(STAGE)
-	git archive HEAD shell.qml bar overlay services themes | tar -x -C $(STAGE)
+	git archive HEAD shell.qml bar overlay services themes helpers | tar -x -C $(STAGE)
 	git describe --tags --exact-match HEAD > $(STAGE)/live
 	mkdir -p "$(DEST)"
 	rsync -a --delete $(STAGE)/ "$(DEST)/"

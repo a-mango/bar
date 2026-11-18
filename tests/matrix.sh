@@ -1819,6 +1819,26 @@ case_CL() {
     wait "$p" || true
     check "notify-send printed the default action" "$(sed -n 2p "$out")" default || f=1
     check "closed with reason 2" "$(reason "$id" "Click check")" 2 || f=1
+    # After M8: helpers/activation-token.py emits ActivationToken first.
+    read -r v a <<< "$("$REPO/tests/buslog.py" "$BUSLOG" token "$id")"
+    check "ActivationToken for the same id before ActionInvoked" "$v" first || f=1
+    echo "  info  ActivationToken to ActionInvoked: ${a:-?} ms; $(n quickshell log -p "$REPO" 2>/dev/null | grep -o "activation token .* for $id" | tail -n 1)"
+    wait_unmapped
+
+    echo "  a failing activation helper: the action goes out anyway"
+    ipc debug tokenHelper /nonexistent/activation-token.py
+    out=$T/logs/CL-fallback.out
+    n notify-send -p -A default=Open "Click fallback" "the helper fails, the action still runs" > "$out" 2>&1 &
+    p=$!
+    sleep 1
+    id=$(notif "d['current']['id']")
+    click 1000 $MID
+    park
+    wait "$p" || true
+    ipc debug tokenHelper ""
+    check "fallback: notify-send printed the default action" "$(sed -n 2p "$out")" default || f=1
+    check "fallback: no ActivationToken" "$("$REPO/tests/buslog.py" "$BUSLOG" token "$id")" missing || f=1
+    check "fallback: closed with reason 2" "$(reason "$id" "Click fallback")" 2 || f=1
     wait_unmapped
 
     echo "  right click on a note with a default action"
