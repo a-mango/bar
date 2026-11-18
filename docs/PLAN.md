@@ -435,7 +435,7 @@ Status (2026-11-18, branch `m8-cutover`, not merged until the day of use is over
 
 - Public repository (2026-11-18): before the first push to GitHub (`a-mango/bar`, MIT), the whole history was rewritten with `git filter-repo` to replace the owner's first name with "the owner" in files and messages. Every commit hash changed. The hashes cited in this file were remapped, and tags `v1.0` to `v1.2` point to the rewritten commits. The pre-rewrite history is in `.test/backup/pre-scrub-2026-11-18.bundle`.
 
-- After `v1.2`, from the owner's day-of-use reports: the wheel on the workspaces (commit `7c3b71c`, Q27) and `ActivationToken` before an action (commit `9b24774`), see M8 findings. The whole matrix passed at `9b24774`, 37 cases with exit status 0, no suspend (`.test/logs/v1.3/matrix.log`). Not installed yet.
+- After `v1.2`, from the owner's day-of-use reports: the wheel on the workspaces (commit `7c3b71c`, Q27) and `ActivationToken` before an action (commit `9b24774`), see M8 findings. The whole matrix passed at `9b24774`, 37 cases with exit status 0, no suspend (`.test/logs/v1.3/matrix.log`). Then the crash fix (commit `b1544e8`, new case LID): the whole matrix passed, 38 cases with exit status 0, no suspend and no core dump (`.test/logs/v1.3/matrix-lid.log`). Not installed yet.
 
 Live checks done: both names owned, tray by process, restart. Still to do with the owner: one tray menu opened and closed; workspace click, `$mod+r`, `present:` mode; clock toggle and calendar; volume, brightness and microphone keys, also over fullscreen; screenshot and right click; `$mod+Shift+d` twice, `$mod+n`, `$mod+Ctrl+n`, a critical; a note during fullscreen; `darkman toggle` twice; logout and login.
 
